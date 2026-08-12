@@ -49,8 +49,8 @@ const DRIVE = {
   /** Fraction of sideways velocity surviving one second. */
   gripRetainPerSecond: 0.02,
   driftRetainPerSecond: 0.55,
-  boostPerChargeUnit: 0.95,
-  maxBoost: 2.6,
+  /** The largest single boost anything can hand out. Sets the speed ceiling. */
+  maxBoost: 4.2,
   /** Anything above the speed ceiling bleeds off at this rate. */
   overspeedDrag: 3.0,
   /**
@@ -118,7 +118,113 @@ const DRIVE = {
   boostPerAirSecond: 2.4,
   boostPerHalfTurn: 1.1,
   maxTrickBoost: 2.6,
+
+  /*
+   * ---- being hit -----------------------------------------------------------
+   *
+   * A spin-out, not a stop. The chair keeps going where it was going and stops
+   * being steered, which is both what happens to a person on castors who is hit
+   * by something and the only version that is survivable: a chair that halts dead
+   * in a 2.5 m doorway is a chair the entire field then has to drive around, and
+   * you spend the recovery looking at a wall rather than at the road.
+   *
+   * 9 rad/s is a turn and a half over a 1.05 s puddle and two and a half over a
+   * 1.7 s module — unmistakable, and slow enough that the room is still readable
+   * through it, which matters because the camera is going round with you.
+   */
+  stunSpin: 9,
+  /** What it coasts down to while it spins, and how fast it gets there. */
+  stunSpeed: 1.4,
+  stunBrake: 5.5,
 } as const;
+
+/**
+ * The drift ladder, and it is the one mechanic in this game that has to be worth
+ * doing over and over.
+ *
+ * ---- why a ladder and not a number ---------------------------------------
+ *
+ * The charge used to buy speed linearly: hold the slide, get `charge × 0.95`
+ * capped at 2.6. That is a *reward*, and a reward is not a mechanic — it pays the
+ * same whether you thought about it or not, so there is no moment in a corner
+ * where anything is at stake. The lap was a series of corners you took as well as
+ * you could and were paid for accordingly, which is exactly the flat, uneventful
+ * feeling this is meant to fix.
+ *
+ * Three thresholds turn the same corner into a held decision. At any instant you
+ * know which rung you are on and what the next one is worth, and letting go is a
+ * choice: take 1.6 now, or stay sideways through the apex — where the wall is —
+ * for 2.9, or commit to the whole corner for 4.2. Nothing about the driving model
+ * changed; what changed is that there is now a question being asked continuously,
+ * and the answer is different depending on whether the doorway ahead is wide.
+ *
+ * The gaps widen as you climb (0.6, then 0.9, then 1.2 of charge) while the
+ * payouts do not quite keep pace. That is deliberate and it is what stops the top
+ * rung being the only one worth having: the third tier costs twice what the first
+ * does and pays a little over twice, so it is worth going for when the road allows
+ * and never worth throwing a corner away for.
+ *
+ * The top of the ladder is 4.2 m/s onto a 6.0 m/s chair — a 70% overspeed, held
+ * for a second and a bit before `overspeedDrag` takes it back. That is a real
+ * event, which is the point: the old 2.6 arrived and left without being noticed.
+ */
+/*
+ * The thresholds are **metres slid sideways**, which is what `charge` has always
+ * accumulated — `charge += slide · h`. Reading them as distances is worth doing
+ * because it is the only way to tell whether they are set sensibly: the top rung
+ * asks for 7.2 m of sideways travel, which is most of the way round a real corner
+ * and cannot be had by flicking the button on a straight.
+ *
+ * The first values here were 0.6, 1.5 and 2.7 and they were far too cheap.
+ * Measured on open floor, a slide develops about 4 m of sideways travel a second,
+ * so the whole ladder was climbed in 0.7 s — the top rung arrived before a corner
+ * had properly begun, every rung was reached on every corner, and a ladder that is
+ * always fully climbed is the flat reward it replaced. At 1.5 / 4.0 / 7.2 the
+ * rungs land around 0.5 s, 1.1 s and 1.9 s of committed drift, which is one
+ * ordinary corner, one long one, and one you have to plan.
+ */
+export const DRIFT_TIERS = [
+  { at: 1.5, boost: 1.6, hold: 0.55 },
+  { at: 3.6, boost: 2.9, hold: 0.85 },
+  { at: 5.8, boost: 4.2, hold: 1.2 },
+] as const;
+
+/**
+ * How much of the sideways velocity the castors redirect forward on the exit.
+ *
+ * ---- the thing that was actually wrong with drifting ----------------------
+ *
+ * Traced on open floor, a drift does not cost you any speed at all: entering at
+ * 6.0 m/s the chair is doing 6.96 a second later. What it does is *point* that
+ * speed sideways — `along` falls to 1.3 while the slide climbs past 6.5. Then the
+ * moment the drift ends, `gripRetainPerSecond` deletes 98% of the sideways
+ * component in a second, and all of that speed simply ceases to exist. You come
+ * out of a corner at 1.3 m/s, are handed a 2.9 m/s boost, and arrive at 4.2 —
+ * slower than the 6.0 you would have had by not drifting at all.
+ *
+ * Which means the most interesting thing in the game was strictly punished, and
+ * no amount of tiering the reward fixes a move that is a net loss. It is the
+ * whole answer to "driving feels slowish and static": the fast line was to never
+ * do the fun thing.
+ *
+ * So the exit redirects rather than scrubs. Half the sideways speed is turned
+ * into forward speed — the castors biting and the momentum going where the chair
+ * is now pointing, which is also roughly what happens to a real chair — and only
+ * the rest is lost. On a good slide that is another 3 m/s on top of the rung, so
+ * a committed drift now leaves a corner *faster* than a tidy one, which is the
+ * only arrangement under which anybody will ever choose to do it.
+ */
+const DRIFT_RECOVER = 0.5;
+
+/** Charge at which the gauge's ring is full: the top rung, and no further. */
+export const CHARGE_FULL = DRIFT_TIERS[DRIFT_TIERS.length - 1]!.at;
+
+/** Which rung a given charge has reached, 0 to 3. */
+export function tierOf(charge: number): number {
+  let tier = 0;
+  for (const step of DRIFT_TIERS) if (charge >= step.at) tier++;
+  return tier;
+}
 
 /** m/s². The one physical constant the driving model does not make up. */
 const GRAVITY = 9.81;
@@ -194,6 +300,16 @@ export type Chair = {
   sync(): void;
   speed(): number;
   driftCharge(): number;
+  /** Which rung the charge has climbed to right now, 0–3. For the sparks. */
+  driftTier(): number;
+  /**
+   * The rung a boost just fired at, once, then 0.
+   *
+   * Handed over rather than pushed, for the reason `takeTrick` and `race.takeSplit`
+   * are: the release happens inside a fixed substep and everything that wants to
+   * react to it — a camera punch, a flash, a sound — happens once a frame.
+   */
+  takeBoost(): number;
   /** Sim state the driver's animation reads. All in chair-local terms. */
   telemetry(): Telemetry;
   /**
@@ -205,6 +321,35 @@ export type Chair = {
    * eight times between two paints.
    */
   takeTrick(): Trick | null;
+
+  /*
+   * ---- what an item is allowed to do to it ---------------------------------
+   *
+   * Three verbs, and they are deliberately three rather than one general-purpose
+   * "apply a force": the driving model owns the velocity outright — it writes
+   * `setLinvel` every substep from its own `along` and `lateral` — so anything
+   * pushed in from outside through the solver is overwritten before the next
+   * frame draws. Each of these instead posts into the model and is picked up at
+   * the top of the next step, which is why all three are safe to call from a key
+   * handler on the frame.
+   */
+  /** Spun out: no control at all for `seconds`, on top of any already left. */
+  stun(seconds: number): void;
+  /** Seconds of spin-out left. Zero when it is being driven. */
+  stunned(): number;
+  /**
+   * Straight speed along the facing, m/s, with the speed ceiling lifted by the
+   * same amount for `hold` seconds.
+   *
+   * The hold is the whole of what makes the fire extinguisher a shove rather than a
+   * tap. `overspeedDrag` exists to take a drift boost back over a couple of
+   * seconds, and without lifting the ceiling with it, it takes three quarters of
+   * a 3.4 m/s push back inside one.
+   */
+  push(speed: number, hold: number): void;
+  /** A shove in a world direction, m/s. Blasts, and nothing else so far. */
+  shove(dx: number, dz: number, speed: number): void;
+
   reset(): void;
   /**
    * Drop the chair somewhere with a heading and a starting speed. Used for
@@ -269,6 +414,20 @@ export function createChair(
   let landed: Trick | null = null;
   const right = new THREE.Vector3();
 
+  /** Seconds of spin-out left, and the boost's remaining licence to speed. */
+  let stunned = 0;
+  let boostFor = 0;
+  let boostBy = 0;
+  /** The rung a drift boost just fired at, waiting to be reported once. */
+  let fired = 0;
+  /** Posted by `push` and `shove`, consumed at the top of the next step. */
+  let pending = 0;
+  let pendingX = 0;
+  let pendingZ = 0;
+
+  /** What the chair is holding while it is spun out: nothing at all. */
+  const LIMP: Input = { throttle: 0, steer: 0, drift: false };
+
   const forward = new THREE.Vector3();
   const velocity = new THREE.Vector3();
   const lateral = new THREE.Vector3();
@@ -315,13 +474,35 @@ export function createChair(
     return physics.groundNormal(probe, HALF_HEIGHT + RADIUS + 0.06, body, ground);
   }
 
-  function update(h: number, input: Input): void {
+  function update(h: number, given: Input): void {
+    if (stunned > 0) stunned -= h;
+    if (boostFor > 0) boostFor -= h;
+    /*
+     * A chair being spun round is not being driven.
+     *
+     * Substituted here rather than tested for in each of the six places the
+     * input is read, so there is exactly one line a stun has to be honoured in
+     * and no branch below can forget it — including the airborne one, which is
+     * its own early return and would otherwise have let a player fly a jump
+     * they had just been knocked out of.
+     */
+    const input = stunned > 0 ? LIMP : given;
+
     const v = body.linvel();
-    velocity.set(v.x, 0, v.z);
+    // Anything shoved in from outside arrives as part of this step's velocity,
+    // before it is decomposed — see the note on `shove` in the type above.
+    velocity.set(v.x + pendingX, 0, v.z + pendingZ);
+    pendingX = 0;
+    pendingZ = 0;
     const fwd = currentForward();
 
     let along = velocity.dot(fwd);
     lateral.copy(velocity).addScaledVector(fwd, -along);
+
+    if (pending !== 0) {
+      along += pending;
+      pending = 0;
+    }
 
     const grounded = onGround();
 
@@ -341,6 +522,10 @@ export function createChair(
       const turn = input.steer * DRIVE.airSteerRate * h;
       yaw -= turn;
       spun += Math.abs(turn);
+      // Knocked round as well, and deliberately not added to `spun`: rotation
+      // you did not ask for is not a trick, and paying a landing boost for
+      // having been hit in mid-air would make the microwave a gift.
+      if (stunned > 0) yaw -= DRIVE.stunSpin * h;
 
       telemetry.impact = 0;
       telemetry.along = along;
@@ -356,7 +541,9 @@ export function createChair(
 
     // Down. Anything worth calling a jump pays out here, once.
     if (air > 0) {
-      if (air >= DRIVE.trickAir) {
+      // A landing does not pay while you are still spinning out of a hit. It is
+      // the same rule as above and the same reason.
+      if (air >= DRIVE.trickAir && stunned <= 0) {
         const degrees = (spun * 180) / Math.PI;
         const boost = Math.min(
           DRIVE.maxTrickBoost,
@@ -380,6 +567,9 @@ export function createChair(
     // actually moving, but can still be shuffled around at a standstill.
     const authority = Math.max(DRIVE.minSteerAuthority, Math.min(1, Math.abs(along) / 3));
     yaw -= input.steer * DRIVE.steerRate * authority * h;
+    // The spin-out, which is not steering and so is not scaled by the authority
+    // a contact patch would give it: you are being turned, not turning.
+    if (stunned > 0) yaw -= DRIVE.stunSpin * h;
 
     // Throttle. It can never push past the top speed on its own — only a drift
     // boost may, and the overspeed drag below is what bleeds that back down.
@@ -418,7 +608,36 @@ export function createChair(
       charge += slide * h;
       boosting = true;
     } else if (boosting) {
-      along += Math.min(charge * DRIVE.boostPerChargeUnit, DRIVE.maxBoost) * Math.sign(along || 1);
+      /*
+       * Let go, and you are paid for the rung you actually reached — not for the
+       * charge, and never for part of a rung. Falling just short of a threshold
+       * has to pay the same as the rung below it, or the ladder is a ramp again
+       * and there is nothing to aim at.
+       */
+      /*
+       * The castors bite first, and this happens whether or not a rung was
+       * reached: the redirect is what a drift exit *is*, and the rung boost is
+       * what it is worth. Keeping them separate means a drift broken early still
+       * hands its momentum back instead of binning it, which is what stops a
+       * half-committed slide being the worst thing you can do.
+       */
+      const carried = lateral.length() * DRIFT_RECOVER;
+      if (carried > 0.05) {
+        along += carried * Math.sign(along || 1);
+        lateral.multiplyScalar(1 - DRIFT_RECOVER);
+      }
+
+      const rung = tierOf(charge);
+      if (rung > 0) {
+        const step = DRIFT_TIERS[rung - 1]!;
+        along += step.boost * Math.sign(along || 1);
+        // Held on the same machinery an item's push uses: the ceiling goes up with
+        // it, so the boost is something you ride rather than something the
+        // overspeed drag eats in the third of a second after it lands.
+        boostBy = Math.max(boostFor > 0 ? boostBy : 0, step.boost);
+        boostFor = Math.max(boostFor, step.hold);
+        fired = rung;
+      }
       charge = 0;
       boosting = false;
     }
@@ -441,7 +660,16 @@ export function createChair(
      * note above describes; what has changed is that arriving at it fast is no
      * longer punished for the arriving.
      */
-    const flat = Math.max(cap, DRIVE.maxSpeed);
+    // Coasting down while it spins, after the drift block so a charge cannot be
+    // cashed out of a hit, and before the ceiling so the clamp still applies.
+    if (stunned > 0 && Math.abs(along) > DRIVE.stunSpeed) {
+      along -= Math.sign(along) * DRIVE.stunBrake * h;
+    }
+
+    // An item's push lifts the ceiling by its own size for as long as it holds —
+    // see `push` on the type. Everything else about the overspeed drag is
+    // unchanged, so the boost still bleeds away, just from a mark that high.
+    const flat = Math.max(cap, DRIVE.maxSpeed) + (boostFor > 0 ? boostBy : 0);
     const ceiling = flat + DRIVE.maxBoost;
     if (along > flat) along = Math.max(flat, along - DRIVE.overspeedDrag * h);
     along = Math.max(-DRIVE.maxReverse, Math.min(ceiling, along));
@@ -478,6 +706,14 @@ export function createChair(
     driftCharge() {
       return charge;
     },
+    driftTier() {
+      return boosting ? tierOf(charge) : 0;
+    },
+    takeBoost() {
+      const rung = fired;
+      fired = 0;
+      return rung;
+    },
     telemetry() {
       return telemetry;
     },
@@ -485,6 +721,27 @@ export function createChair(
       const trick = landed;
       landed = null;
       return trick;
+    },
+    stun(seconds) {
+      // The longer of the two rather than the sum: two things landing at once is
+      // one accident, and adding them is how a player ends up spinning for four
+      // seconds in a doorway with no idea why.
+      stunned = Math.max(stunned, seconds);
+      // A hit ends a boost. Keeping it would mean being knocked out of your own
+      // line at the one speed that makes that unrecoverable.
+      boostFor = 0;
+    },
+    stunned() {
+      return Math.max(0, stunned);
+    },
+    push(speed, hold) {
+      pending += speed;
+      boostBy = Math.max(boostFor > 0 ? boostBy : 0, speed);
+      boostFor = Math.max(boostFor, hold);
+    },
+    shove(dx, dz, speed) {
+      pendingX += dx * speed;
+      pendingZ += dz * speed;
     },
     reset() {
       this.place(spawn.position[0], spawn.position[2], spawn.yaw, 0);
@@ -504,6 +761,15 @@ export function createChair(
       landed = null;
       telemetry.airborne = false;
       telemetry.air = 0;
+      // Nor is it spinning out of something that happened in the last race, or
+      // still carrying a boost it was handed before the grid was cleared.
+      stunned = 0;
+      boostFor = 0;
+      boostBy = 0;
+      pending = 0;
+      pendingX = 0;
+      pendingZ = 0;
+      fired = 0;
     },
   };
 }

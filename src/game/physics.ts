@@ -20,11 +20,33 @@ const MAX_CATCHUP = 0.1;
 export type Physics = {
   world: RAPIER.World;
   /**
-   * Distance to the nearest *fixed* obstruction along a ray, or `max` if clear.
+   * Distance to the nearest solid obstruction along a ray, or `max` if clear.
    *
-   * Used by the chase camera. Dynamic bodies are ignored on purpose: pulling
-   * the camera in every time it passes behind a loose chair would read as a
-   * stutter rather than as an occlusion.
+   * Used by the chase camera, and "solid" here means **fixed or kinematic** —
+   * the building, and the four chairs the computer drives.
+   *
+   * Dynamic bodies are still ignored on purpose: pulling the camera in every time
+   * it passes behind a loose bin would read as a stutter rather than as an
+   * occlusion, and a bin gets knocked out of the way in a moment anyway.
+   *
+   * The rivals were in that same exemption until it was measured, and they do not
+   * belong in it. A rival is not scenery that might be nudged aside: it is a
+   * chair-and-rider the same size as the player's, it is *following* you, and it
+   * stays there. With the field excluded the camera sat 60 mm from the head of the
+   * chair behind — measured — which on screen is the inside of somebody's skull
+   * filling the frame. A stutter is a blemish; that is the shot being destroyed.
+   */
+  rayToSolid(from: THREE.Vector3, dir: THREE.Vector3, max: number, exclude: RAPIER.RigidBody): number;
+  /**
+   * The same ray, against the **building alone** — fixed bodies only.
+   *
+   * This is the floor question rather than the camera question, and they are not
+   * the same one. `rivals.ts` casts downward to find which floor a chair is
+   * standing on, and if that ray could see the other chairs then the first rival
+   * to drive under another would read its rival's capsule as the ground and ride
+   * up over its head. A camera wants to know what is in the way; a floor probe
+   * wants to know what the building is doing. Two names, so neither can quietly
+   * become the other.
    */
   rayToStatic(from: THREE.Vector3, dir: THREE.Vector3, max: number, exclude: RAPIER.RigidBody): number;
   /**
@@ -97,6 +119,36 @@ export async function createPhysics(volumes: readonly CollisionVolume[]): Promis
   let accumulator = 0;
 
   const ray = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1 });
+
+  /**
+   * The body of both ray queries. `chairs` is the only thing that differs: the
+   * camera counts the kinematic field as things to be blocked by, the floor probe
+   * does not. Dynamic bodies are excluded either way — see `rayToSolid`.
+   */
+  function cast(
+    from: THREE.Vector3,
+    dir: THREE.Vector3,
+    max: number,
+    exclude: RAPIER.RigidBody,
+    chairs: boolean,
+  ): number {
+    ray.origin.x = from.x;
+    ray.origin.y = from.y;
+    ray.origin.z = from.z;
+    ray.dir.x = dir.x;
+    ray.dir.y = dir.y;
+    ray.dir.z = dir.z;
+
+    let nearest = max;
+    world.intersectionsWithRay(ray, max, true, (hit) => {
+      const parent = hit.collider.parent();
+      if (!parent || parent === exclude) return true;
+      if (!parent.isFixed() && !(chairs && parent.isKinematic())) return true;
+      if (hit.timeOfImpact < nearest) nearest = hit.timeOfImpact;
+      return true;
+    });
+    return nearest;
+  }
   // A second ray rather than a shared one. These two are called from different
   // places in the frame — the camera's occlusion test from the render side, the
   // chair's slope probe from inside the fixed step — and rapier's ray is a
@@ -106,22 +158,11 @@ export async function createPhysics(volumes: readonly CollisionVolume[]): Promis
 
   return {
     world,
+    rayToSolid(from, dir, max, exclude) {
+      return cast(from, dir, max, exclude, true);
+    },
     rayToStatic(from, dir, max, exclude) {
-      ray.origin.x = from.x;
-      ray.origin.y = from.y;
-      ray.origin.z = from.z;
-      ray.dir.x = dir.x;
-      ray.dir.y = dir.y;
-      ray.dir.z = dir.z;
-
-      let nearest = max;
-      world.intersectionsWithRay(ray, max, true, (hit) => {
-        const parent = hit.collider.parent();
-        if (!parent || !parent.isFixed() || parent === exclude) return true;
-        if (hit.timeOfImpact < nearest) nearest = hit.timeOfImpact;
-        return true;
-      });
-      return nearest;
+      return cast(from, dir, max, exclude, false);
     },
     groundNormal(from, reach, exclude, out) {
       down.origin.x = from.x;

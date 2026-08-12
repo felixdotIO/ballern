@@ -36,7 +36,7 @@
 
 import type * as THREE from 'three';
 
-import type { Trick } from '../../game/chair';
+import { CHARGE_FULL, type Trick } from '../../game/chair';
 import { formatTime, type Race } from '../../game/race';
 import { GATES } from '../../office/plan';
 import { createMinimap, MINIMAP_CSS } from '../../ui/minimap';
@@ -45,11 +45,12 @@ import { createOdometer, el, FAMILY, installLook } from './look';
 
 /**
  * Drift charge that fills the inner ring, in the units `chair.driftCharge()` returns.
- * Not a taste decision: the boost is `min(charge · 0.95, 2.6)`, so charge stops buying
- * anything at 2.74 and a ring that kept filling past that would be promising speed the
- * solver will not give.
+ *
+ * Taken from the ladder itself rather than written down, and that is the whole
+ * point of importing it: the ring is full at the top rung, so a full ring means
+ * "the biggest boost is in your hand" and nothing past it is promised. When the
+ * thresholds move, this moves with them.
  */
-const CHARGE_FULL = 2.6 / 0.95;
 
 /** How long the GO stays up, in seconds of race clock. */
 const GO_FOR = 0.85;

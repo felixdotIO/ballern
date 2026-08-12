@@ -92,11 +92,30 @@ export function dressHall(room: Room, out: Dress, rng: Rng): void {
    */
   const deskX = screenX - 1.0;
   const deskZ = HALL_COLUMNS.z + 1.9;
+  /*
+   * The box, in the desk's own frame — which is not the frame it was written in.
+   *
+   * `receptionDesk()` builds its run along its local **X**: every `part` in it is
+   * `[length, …]` wide with the depth carried in Z. The collider was authored the
+   * other way round, `[depth, height, length]`, and since `solid` yaws the mesh
+   * and the box by the same angle the two ended up crossed at ninety degrees.
+   *
+   * Measured: 3.70 m of collider running east–west against 3.6 m of counter
+   * running north–south. Which means the two ends of the desk — most of it —
+   * stopped nothing at all, and there was an invisible 3.6 m wall lying across
+   * the visitor side of it instead. Driving through the reception counter was the
+   * first thing anybody noticed about this room.
+   *
+   * It is the same mistake this file already records one paragraph down, where
+   * the things standing *on* the desk were laid out in X for an unturned desk and
+   * ended up hanging in mid-air over the lift lobby. A turned prop has to be
+   * described in its own axes, every time.
+   */
   solid(
     out,
     H.receptionDesk(),
     'hall.desk',
-    [HALL.deskDepth + 0.3, HALL.deskTransactionHeight, HALL.deskLength],
+    [HALL.deskLength, HALL.deskTransactionHeight, HALL.deskDepth + 0.3],
     [deskX, 0, deskZ],
     facing('east'),
   );

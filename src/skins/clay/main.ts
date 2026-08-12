@@ -41,7 +41,8 @@ import { buildFloorplate } from '../../office/shell';
 import { GATES, LAPS, ROUTE, SHOWROOM, roomAt } from '../../office/plan';
 import { buildDressing } from '../../office/dressing';
 import { buildTrackMarks } from '../../office/trackmarks';
-import { createChair, FLOOR_OFFSET, type Input } from '../../game/chair';
+import { buildCrowd } from '../../office/crowd';
+import { createChair, DRIFT_TIERS, FLOOR_OFFSET, type Input } from '../../game/chair';
 import { createPhysics } from '../../game/physics';
 import { createDynamics } from '../../game/dynamics';
 import { createDriver } from '../../game/driver';
@@ -50,7 +51,6 @@ import { bindDriver } from '../../render/driverRig';
 import { createQuality } from '../../render/quality';
 import { driver as kitDriver, loadKit, raceChair, type DriverKey } from '../../render/kit';
 import { createLightPool } from '../../render/lights';
-import { createDonuts } from './donuts';
 import { createRoutePath } from './routePath';
 import { createRivals, FIELD_SIZE } from '../../game/rivals';
 import { PLAYER_SLOT, progressOnGrid } from '../../game/grid';
@@ -63,6 +63,19 @@ import { createMenu } from './menu';
 import { createGarage, RIDE_BUILDERS, RIDERS, RIDES } from './garage';
 import { shoot } from './portraits';
 import { makeRng, seedFrom } from '../../office/rng';
+import { createItemPlay, type Racer } from '../../game/items';
+import { createProjectiles, type ItemArt, type ItemEffects } from '../../game/projectiles';
+import { createPinatas } from './pinatas';
+import { createItemHud } from './itemHud';
+import { createRush } from './rush';
+import {
+  binder,
+  cloud,
+  extinguisher as extinguisherArt,
+  inviteCard,
+  microwaveBomb,
+  puddle as puddleArt,
+} from './itemArt';
 
 const canvas = document.getElementById('stage') as HTMLCanvasElement;
 
@@ -146,6 +159,19 @@ scene.add(dressing.group);
 const marks = buildTrackMarks();
 scene.add(marks.group);
 
+/*
+ * The colleagues who came to watch, and who are also the track's edges.
+ *
+ * They replace the checkpoint donuts: a wall of people with their arms up says
+ * "this way" in the same register the rest of the building speaks in, and unlike a
+ * floating marker it is *solid*, so the shortcut behind it stops existing. The
+ * gates in `race.ts` are unchanged and still decide whether a lap counts — the
+ * difference is that the route is now shaped by the room rather than only judged
+ * after the fact. See `office/crowd.ts` for where they stand and why.
+ */
+const crowd = buildCrowd();
+scene.add(crowd.group);
+
 // The kit's `.glb` assets carry their own materials, which `repaintBuilding`
 // cannot reach because they are not in `MAT`. Now that everything is built,
 // sweep the graph.
@@ -158,7 +184,7 @@ repaintObject(scene);
 const pool = createLightPool(scene);
 const lighting = createClayLighting(scene);
 
-const physics = await createPhysics([...shell.collision, ...dressing.collision]);
+const physics = await createPhysics([...shell.collision, ...dressing.collision, ...crowd.collision]);
 
 const dynamics = createDynamics(physics.world, dressing.dynamic);
 scene.add(dynamics.root);
@@ -166,16 +192,6 @@ scene.add(dynamics.root);
 const chair = createChair(physics, shell.spawn);
 scene.add(chair.object);
 
-// The checkpoints, made literal. Added after `repaintObject` so the regrade
-// does not reach them — a donut is the one thing in this building that is
-// allowed to be fully saturated. Purely visual: the gate is still taken by the
-// same plane crossing in race.ts that it always was.
-//
-// And now the only thing in the world that marks the lap. The escape-route
-// signage and the floor's pink rings both used to say the same thing in two
-// other registers; the donut says it once, so it is the one that stayed.
-const donuts = createDonuts(GATES);
-scene.add(donuts.group);
 
 // Where the line goes next, tracked but not drawn — the HUD chevron's bearing
 // and nothing else. See the note at the top of routeAim.ts.
@@ -401,18 +417,163 @@ function trackPlayer(): void {
   playerS = ((next % lapPath.total) + lapPath.total) % lapPath.total;
 }
 
+/*
+ * ---- items ----------------------------------------------------------------
+ *
+ * Six rows of piñatas on the route, five kinds of thing to find in one, and one
+ * seat per chair to carry it. `game/items.ts` owns the rules, `game/projectiles.ts`
+ * owns what flies, `pinatas.ts` owns the boxes and `itemArt.ts` owns the look; the
+ * only thing that lives here is the wiring, because this is the one file that knows
+ * the player and the field are the same kind of thing.
+ *
+ * Everything is built *after* `repaintObject(scene)`, for the same reason the donuts
+ * are: an item is not furniture, the regrade would take it into the clay band, and a
+ * pickup in the clay band is a pickup nobody can see.
+ */
+
+/**
+ * A chair, as the item rules see one. Index 0 is the player.
+ *
+ * One flat list rather than "the player, and also the rivals", which is the whole
+ * trick: a rival's `progress` and the player's are already the same quantity on the
+ * same scale, so targeting, standings and every hit test are one comparison over
+ * five identical records. Nothing in `items.ts` or `projectiles.ts` knows which of
+ * them is being driven by a person.
+ */
+type Seat = { -readonly [K in keyof Racer]: Racer[K] } & { position: THREE.Vector3 };
+
+const seats: Seat[] = [
+  { id: 0, position: new THREE.Vector3(), yaw: 0, progress: 0, stunned: 0, finished: false },
+  ...rivals.all.map((_, i) => ({
+    id: i + 1,
+    position: new THREE.Vector3(),
+    yaw: 0,
+    progress: 0,
+    stunned: 0,
+    finished: false,
+  })),
+];
+
+const itemHud = createItemHud();
+const rush = createRush();
+
+/**
+ * The rung a drift boost fired at this frame, and the worst clout taken.
+ *
+ * Both are collected inside the fixed step — where they happen — and spent on the
+ * frame, which is the same arrangement `takeTrick` and `race.takeSplit` use and
+ * for the same reason: a boost released inside a substep would otherwise be
+ * reported up to eight times between two paints, and eight camera punches on one
+ * corner is a seizure rather than a shot.
+ */
+let boostThisFrame = 0;
+let impactThisFrame = 0;
+
+/**
+ * Not the seeded generator every builder in this project uses.
+ *
+ * The building is seeded because a room that comes out differently on two machines
+ * is a bug. A race is the opposite: drawing the same five items in the same order
+ * every time is the bug, and it is the one that would be noticed first.
+ */
+const itemPlay = createItemPlay({
+  size: seats.length,
+  rng: Math.random,
+  fire: (kind, owner, backwards) => projectiles.fire(kind, owner, backwards),
+});
+
+const effects: ItemEffects = {
+  vulnerable: (id) => itemPlay.vulnerable(id),
+  absorb: (id) => itemPlay.absorb(id),
+  stun(id, seconds, kind) {
+    // Whatever it was carrying is gone, and it cannot be hit again for a while.
+    itemPlay.struck(id);
+    if (id === 0) {
+      chair.stun(seconds);
+      // The module blocks the screen for exactly as long as the spin-out, which is
+      // the one place where the interface and the simulation have to agree to the
+      // frame: a card that outlasts the stun is a card you sit behind while
+      // driving, and one that ends early is a punishment with a seam in it.
+      if (kind === 'training') itemHud.module(seconds);
+    } else {
+      rivals.stun(id - 1, seconds);
+    }
+  },
+  shove(id, dx, dz, speed) {
+    // Only the player. A rival is a distance along the route plus a lane offset and
+    // has nowhere to be shoved to — see the note on `stun` in `rivals.ts`.
+    if (id === 0) chair.shove(dx, dz, speed);
+  },
+  push(id, speed, seconds) {
+    if (id === 0) chair.push(speed, seconds);
+    else rivals.push(id - 1, speed, seconds);
+  },
+  blind(id, seconds) {
+    if (id === 0) itemHud.blind(seconds);
+    else rivals.blind(id - 1, seconds);
+  },
+};
+
+/** Every puddle is its own splash, so each one gets its own stream of numbers. */
+let spills = 0;
+
+const itemArt: ItemArt = {
+  binder: binder(),
+  card: inviteCard(),
+  microwave: microwaveBomb(),
+  extinguisher: extinguisherArt(),
+  puddle: () => puddleArt(makeRng(seedFrom(`clay.puddle.${spills++}`))),
+  cloud,
+};
+
+const projectiles = createProjectiles(physics, lapPath, itemArt, effects);
+scene.add(projectiles.root);
+
+const pinatas = createPinatas(lapPath, physics);
+scene.add(pinatas.group);
+
+/** Carry where everybody is into the flat list the item rules read. */
+function seatEveryone(): void {
+  const me = seats[0]!;
+  const p = chair.body.translation();
+  me.position.set(p.x, p.y - FLOOR_OFFSET, p.z);
+  // Yaw off the body rather than off `chair.object`, because this runs inside the
+  // fixed step and the mesh is only synced once a frame. The chair writes its
+  // heading into the body's rotation every substep as a pure Y quaternion, so this
+  // is the same number one line earlier.
+  const r = chair.body.rotation();
+  me.yaw = 2 * Math.atan2(r.y, r.w);
+  me.progress = playerProgress;
+  me.stunned = chair.stunned();
+  me.finished = race.phase === 'finished';
+
+  for (let i = 0; i < rivals.all.length; i++) {
+    const rival = rivals.all[i]!;
+    const seat = seats[i + 1]!;
+    seat.position.copy(rival.position);
+    // The rival's own yaw is its mesh's, which is the route's heading turned into
+    // the game's convention — so an item thrown by one leaves along the same facing
+    // the player's would.
+    seat.yaw = rival.yaw;
+    seat.progress = rival.progress;
+    seat.stunned = rival.stunned;
+    seat.finished = rival.finished;
+  }
+}
+
 /**
  * Move the chair between the two places the front end shows it.
  *
- * `true` is the showroom on Ebene 5 — see `SHOWROOM` in plan.ts for why the character
- * select is a garage scene. `false` is the grid slot it starts a race from.
+ * `true` is the showroom in the open plan — see `SHOWROOM` in plan.ts for why the
+ * character select is shot among the desks. `false` is the grid slot it starts a
+ * race from.
  *
  * A teleport rather than a second scene, and that is the whole trick: there is no
- * showroom set, no separate lighting rig and no duplicate of the chair. The building
- * already contains a windowless concrete level nobody was looking at, so the front
- * end drives the player's chair down there, photographs it, and drives it back up
- * when they press start. Everything that reads the chair's position — the camera, the
- * light pool, the depth of field, the swivel — follows it without being told.
+ * showroom set, no separate lighting rig and no duplicate of the chair. The front end
+ * drives the player's chair to a clear stretch of the south aisle, photographs it
+ * there, and drives it back to the grid when they press start. Everything that reads
+ * the chair's position — the camera, the light pool, the depth of field, the swivel —
+ * follows it without being told.
  *
  * Only from the title screen. Pausing mid-race shows you where you actually are,
  * because a pause menu that spirits the player off to a basement is a pause menu that
@@ -433,8 +594,15 @@ function restart(): void {
   for (const r of rivalRigs) r.driver.reset();
   dynamics.reset();
   driver.reset();
-  donuts.reset();
   routeAim.reset();
+  // Every piñata back on its hook, everything in the air gone, five empty hands and
+  // a clean screen. A race that starts with somebody's microwave still ticking from
+  // the last one is not a restart.
+  pinatas.reset();
+  projectiles.reset();
+  itemPlay.reset();
+  itemHud.reset();
+  rush.reset();
   race.reset();
   race.start();
   updateCamera(0, true);
@@ -534,33 +702,63 @@ const menu = createMenu({
 });
 
 /**
- * The donuts are down while the menu is up, and that is the whole of it now.
+ * The pickups are down while the front end is up.
  *
- * The first gate's donut stands on the start line, the chair is parked on the start
- * line, and the menu's camera sits under three metres away — so the first frame of
- * the picker was a driver almost entirely inside a two-metre pink torus. The donut
- * is for the lap; while the chair is the subject it is scenery in the way.
- *
- * This used to be a settings function, called `applyGuides`, and it hid three things
- * at once behind a switch on the menu: these donuts, the escape-route signage, and a
- * second set of pink rings the floor builder was laying at the same eleven gates. The
- * signage and the rings are gone, the switch with them, and what is left is not a
- * setting — it is one object getting out of the way of one shot.
+ * The piñatas are saturated, floating and 900 mm across, and the showroom stands
+ * six metres from a row of them — so without this the driver select is shot with
+ * three of them over the driver's shoulder.
  */
-function showDonuts(): void {
-  donuts.group.visible = !menu.open;
+function showPickups(staged: boolean): void {
+  // `staged` rather than `menu.open`, because the front end is on screen before the
+  // menu is: `staging` holds the character-select framing from the first frame until
+  // the title card has finished lifting, and a pickup that is only hidden once the
+  // menu itself appears is a pickup visible for the whole of that.
+  pinatas.group.visible = !staged;
+  /*
+   * And the colleagues, for a reason that is about the picture rather than the game.
+   *
+   * The showroom stands in the Grossraum and the office stand is nineteen metres up
+   * the room from it, which is squarely in the background of the portrait — so the
+   * character select was being shot with a crowd of jumping people over the driver's
+   * shoulder, all of them competing with the one figure the screen exists to show.
+   * They are track furniture: they belong to the race, and the race has not started.
+   */
+  crowd.group.visible = !staged;
 }
 
+/*
+ * ---- throwing things ------------------------------------------------------
+ *
+ * E forward, Q behind, and holding E drags the item along behind you instead of
+ * firing it. That last one falls out of the two handlers rather than needing a mode:
+ * the key going down starts the trail and the key coming up throws, so a tap is a
+ * throw with a trail four hundredths of a second long and a hold is a shield you can
+ * spend whenever you like. It is the same gesture every game of this kind uses, and
+ * it is worth having because the field throws back.
+ */
 addEventListener('keydown', (e) => {
   if (BLOCKED.has(e.code)) e.preventDefault();
   if (e.code === 'KeyR') restart();
   if (e.code === 'Minus' || e.code === 'NumpadSubtract') quality.step(-1);
   if (e.code === 'Equal' || e.code === 'NumpadAdd') quality.step(1);
   if (e.code === 'Digit0' || e.code === 'Numpad0') quality.auto();
+  if (!e.repeat && race.live && !menu.open) {
+    if (e.code === 'KeyE') itemPlay.trailPlayer(true);
+    if (e.code === 'KeyQ') itemPlay.usePlayer(true);
+  }
   keys.add(e.code);
 });
-addEventListener('keyup', (e) => keys.delete(e.code));
-addEventListener('blur', () => keys.clear());
+addEventListener('keyup', (e) => {
+  if (e.code === 'KeyE' && race.live && !menu.open) itemPlay.usePlayer(false);
+  keys.delete(e.code);
+});
+addEventListener('blur', () => {
+  // A key that goes down here and up in another window never comes up as far as this
+  // page is concerned, and an item left trailing forever is one that can never be
+  // thrown.
+  itemPlay.trailPlayer(false);
+  keys.clear();
+});
 
 const held = (...codes: string[]) => codes.some((c) => keys.has(c));
 
@@ -606,14 +804,141 @@ const CAM = {
   /** Radians of roll per m/s of sideways slide, and a hard clamp on it. */
   rollPerSlide: 0.05,
   maxRoll: 0.16,
+
+  /*
+   * ---- when it cannot go back, it goes up ----------------------------------
+   *
+   * The occlusion clamp does the right thing and produces a terrible shot: it
+   * pulls the boom in until the wall is clear, which at the limit is a lens 1.15 m
+   * from the back of the driver's own head, at his eye line, seeing nothing else.
+   * The start is the worst case and it is not a rare one — measured, the east
+   * glazing stands 1.5 m behind the player's grid slot, so a camera asking for
+   * 3.82 m gets 1.66 and the opening frame of every race is the inside of a
+   * chair back. Doorways all round the lap do a smaller version of the same.
+   *
+   * A boom that cannot go backwards can still go *upward*, and that is a real
+   * shot rather than a salvage: high and steep behind the chair, looking down the
+   * road over it. So when the clamp bites, the rig asks a second question — how
+   * far can it get going up and over instead — and takes whichever of the two
+   * answers leaves more room. One extra raycast on the frames where it matters.
+   */
+  /**
+   * How much higher the steep shot rides, metres above the normal lift.
+   *
+   * 0.8, and the first attempt at 1.45 is worth recording because it was wrong in
+   * the interesting direction: it cleared the wall beautifully and put the lens
+   * 2.35 m up on a 1.37 m boom, which is a 52° look-down — a helicopter shot of
+   * the top of your own driver's head with the entire field outside the frame.
+   * Fixing "the camera is in the wall" by making the camera useless is not fixing
+   * it. Height alone was never the answer; see `squeezeAhead`.
+   */
+  squeezeLift: 0.8,
+  /** And how much of the boom's length it keeps while doing it. */
+  squeezePull: 0.55,
+  /**
+   * Seconds the rig takes to move between the open shot and the squeezed one.
+   *
+   * The first version had no such number, and that was the whole fault. It picked
+   * the better of a flat boom and a steep one *per frame*, by a strict comparison
+   * — so a doorframe drifting in and out of the ray's path flipped the shot
+   * between two quite different camera angles from one frame to the next, and the
+   * aim swung two and a half metres up the road with it. Correct every frame, and
+   * unwatchable across them.
+   *
+   * There is no version of a binary choice that does not do this, so the choice is
+   * gone: the two booms are *blended* by an eased figure, and this is how long the
+   * ease takes. 0.4 s is slow enough that a doorway flickering past cannot move the
+   * camera and quick enough that arriving at a real wall is dealt with before you
+   * reach it.
+   */
+  squeezeEases: 0.4,
+
+  /**
+   * Where it looks when it has been squeezed: further up the road.
+   *
+   * This is the half of the fix that matters. A camera that cannot back away from
+   * its subject has one other way to frame anything — stop pointing at the
+   * subject. Aiming 2.4 m ahead of the chair swings the whole view up and forward,
+   * so the driver drops into the bottom of the frame and what fills it is the
+   * thing you actually need at a standing start: the four chairs in front and the
+   * road past them. The lift is then only there to see over your own head.
+   */
+  squeezeAhead: 1.8,
+  /** And a little extra height on the aim, so the horizon comes up with it. */
+  squeezeAimUp: 0.3,
+
+  /*
+   * ---- what the camera does when something happens -------------------------
+   *
+   * The rig tracked speed and slide and nothing else, which is why gaining speed
+   * felt like nothing: an FOV that widens smoothly with velocity is a lens, and a
+   * lens is not an event. A drift boost is the biggest thing that happens in a
+   * lap and it arrived silently.
+   *
+   * So a boost now punches the lens open and drops the boom back, both decaying
+   * over about half a second — the frame it lands on is wide and far, and the
+   * shot walks back in as the speed bleeds off. Scaled by the rung, so the third
+   * tier is visibly a bigger event than the first, which is the whole argument
+   * for having rungs.
+   */
+  /** Degrees of FOV added at the moment a top-rung boost fires. */
+  boostFov: 7,
+  /** And metres the boom drops back with it. */
+  boostPull: 0.5,
+  /** Seconds either takes to come back. */
+  boostFor: 0.55,
+
+  /*
+   * And a kick when the room hits back.
+   *
+   * `chair.telemetry().impact` — the speed lost to a collision this substep — has
+   * been computed since the driving model was written and **nothing has ever read
+   * it**. Clouting a doorframe at six metres a second took two thirds of your
+   * speed and the picture did not move, which is most of why the building feels
+   * soft to drive in.
+   *
+   * A kick rather than hit-stop: freezing time is the usual trick and it is not
+   * available here, because the race clock runs off the fixed substep and a lap
+   * time that pauses when you crash is not a lap time.
+   */
+  /** Radians of roll thrown in per m/s of speed lost, and a clamp. */
+  kickPerImpact: 0.05,
+  maxKick: 0.2,
+  /** Seconds it takes to settle. */
+  kickFor: 0.4,
+
+  /**
+   * How close the *rescue* clamp may come, as against `minDistance`.
+   *
+   * They are two different jobs and they had one number. `minDistance` is a
+   * composition floor — how near the lens is ever willingly parked, so the shot
+   * does not become a shoulder. This is a safety floor, and it has to be smaller
+   * than the thing it is rescuing from: with only the 1.15 m figure, a rival
+   * sitting a metre off the player's back left the camera stopping *at* 1.15 m —
+   * which is to say, inside it. Measured, that was 260 mm from the rider's head.
+   *
+   * 0.7 m is closer than any shot wants to be and it is only ever reached for a
+   * moment, which is the correct trade: too close for a beat beats inside a head
+   * for a beat.
+   */
+  hardMin: 0.7,
 };
 
 const desired = new THREE.Vector3();
 const aimPoint = new THREE.Vector3();
 const behind = new THREE.Vector3();
+/** The up-and-over boom the rig falls back to when the flat one is blocked. */
+const steep = new THREE.Vector3();
 const pivot = new THREE.Vector3();
 const toCamera = new THREE.Vector3();
 let roll = 0;
+/** 0…1, how much of a drift boost's punch is still on the lens. */
+let punch = 0;
+/** How blocked the ordinary boom is, eased. 0 open, 1 against a wall. */
+let squeezed = 0;
+/** And of an impact's kick, with the side it came from. */
+let kick = 0;
+let kickSide = 1;
 
 function updateCamera(dt: number, snap = false): void {
   const yaw = chair.object.rotation.y;
@@ -622,12 +947,47 @@ function updateCamera(dt: number, snap = false): void {
   pivot.copy(chair.object.position);
   pivot.y += CAM.aim;
 
+  // Both decay on their own clock so a boost taken mid-crash does not cancel it.
+  punch = Math.max(0, punch - dt / CAM.boostFor);
+  kick = Math.max(0, kick - dt / CAM.kickFor);
+
   const lift = CAM.height - CAM.aim;
-  toCamera.copy(behind).multiplyScalar(CAM.distance).setY(lift);
+  // Back as well as up on a boost: the shot opens out at the moment the speed
+  // arrives and walks in again as it bleeds away.
+  toCamera.copy(behind).multiplyScalar(CAM.distance + punch * CAM.boostPull).setY(lift);
   const boom = toCamera.length();
   toCamera.divideScalar(boom);
 
-  const clear = physics.rayToStatic(pivot, toCamera, boom + CAM.margin, chair.body);
+  /*
+   * ---- one boom, blended, rather than a choice between two ----------------
+   *
+   * How blocked the ordinary shot is, as a fraction — 0 down an open corridor, 1
+   * with a wall against the lens. That figure is then *eased*, and everything
+   * downstream reads the eased one: the blend toward the steep boom, and how far
+   * up the road the aim swings.
+   *
+   * This replaces a hard per-frame comparison — take the flat boom or the steep
+   * one, whichever gained more height — and the comparison is what made the
+   * camera change angle so violently. It was individually right on every frame
+   * and wrong across them: a doorframe passing through the ray flipped the shot
+   * between two quite different rigs and back again within a few frames, and
+   * there is no threshold or hysteresis that fixes a binary choice being made
+   * sixty times a second. Blending has no state to flip.
+   */
+  const flatClear = physics.rayToSolid(pivot, toCamera, boom + CAM.margin, chair.body);
+  const blocked = THREE.MathUtils.clamp(1 - (flatClear - CAM.margin) / boom, 0, 1);
+  squeezed += (blocked - squeezed) * Math.min(1, dt / CAM.squeezeEases);
+  if (snap) squeezed = blocked;
+
+  if (squeezed > 0.01) {
+    // The steep shot, and the boom actually flown is the two of them mixed. Both
+    // are directions on the same pivot, so mixing them is a mix of *angle*, which
+    // is what the eye reads — the lens rises and comes in together.
+    steep.copy(behind).multiplyScalar(CAM.distance * CAM.squeezePull).setY(lift + CAM.squeezeLift).normalize();
+    toCamera.lerp(steep, squeezed).normalize();
+  }
+
+  const clear = physics.rayToSolid(pivot, toCamera, boom + CAM.margin, chair.body);
   const reach = Math.max(CAM.minDistance, Math.min(boom, clear - CAM.margin));
 
   desired.copy(pivot).addScaledVector(toCamera, reach);
@@ -643,8 +1003,54 @@ function updateCamera(dt: number, snap = false): void {
   if (snap) camera.position.copy(desired);
   else camera.position.lerp(desired, 1 - Math.pow(0.0006, dt));
 
+  /*
+   * And then the same test again, against where the lens actually ended up.
+   *
+   * The ray above clears the position the camera is *travelling to*; the camera
+   * eases there over about a fifth of a second, and in that time a chair doing
+   * five and a half metres a second can drive into the space it is crossing. That
+   * is not a hypothetical — with only the first test, measured, the lens still
+   * came within 240 mm of a rival's head, because the rival arrived after the
+   * boom had been cleared.
+   *
+   * So the eased position is clamped too. This one is a hard correction rather
+   * than a target: it moves the camera this frame, without easing, because a lens
+   * inside somebody's head has to be out of it now rather than shortly.
+   */
+  toCamera.subVectors(camera.position, pivot);
+  const held = toCamera.length();
+  if (held > 1e-3) {
+    toCamera.divideScalar(held);
+    const room = physics.rayToSolid(pivot, toCamera, held + CAM.margin, chair.body);
+    /*
+     * Only when the lens is genuinely *through* something, not merely near it.
+     *
+     * The test used to be `room < held + margin`, which fires whenever anything at
+     * all comes within the margin of the boom — down a corridor that is most
+     * frames, and each one snapped the camera without easing. A rescue that runs
+     * constantly is not a rescue, it is a second, jerkier camera fighting the
+     * first. Dropped to the bare penetration test it fires only when it has
+     * something to fix, and the ordinary easing is left to do the ordinary work.
+     */
+    if (room < held) {
+      camera.position.copy(pivot).addScaledVector(toCamera, Math.max(CAM.hardMin, room - CAM.margin));
+    }
+  }
+
+  /*
+   * And the aim swings up the road by the same eased figure.
+   *
+   * `squeezed` rather than a fresh reading off `reach`, so the look direction and
+   * the boom move together on one clock. Driven off `reach` it jittered: the
+   * clamp is a hard number that changes the instant a ray clears, so the aim was
+   * being thrown two metres forward and back between frames while the boom itself
+   * was easing smoothly. One value, one ease, one motion.
+   */
   aimPoint.copy(chair.object.position);
-  aimPoint.y += CAM.aim;
+  aimPoint.y += CAM.aim + squeezed * CAM.squeezeAimUp;
+  // Forward is the opposite of the boom's own direction along the floor.
+  aimPoint.x -= behind.x * squeezed * CAM.squeezeAhead;
+  aimPoint.z -= behind.z * squeezed * CAM.squeezeAhead;
   camera.lookAt(aimPoint);
 
   // Roll into the slide, off the chair's own lateral velocity. Clamped and
@@ -657,10 +1063,16 @@ function updateCamera(dt: number, snap = false): void {
     CAM.maxRoll,
   );
   roll = snap ? wanted : roll + (wanted - roll) * (1 - Math.pow(0.02, dt));
-  camera.rotateZ(roll);
+  // The impact kick rides on top of the roll rather than replacing it, and it is
+  // not eased: a collision is the one thing on screen that should arrive on the
+  // frame it happened. It decays, it does not ramp.
+  camera.rotateZ(roll + (snap ? 0 : kick * CAM.maxKick * kickSide));
 
   const targetFov = CAM.baseFov + chair.speed() * CAM.fovPerSpeed;
   camera.fov += (targetFov - camera.fov) * (snap ? 1 : 1 - Math.pow(0.05, dt));
+  // And the boost's punch, applied after the easing rather than through it —
+  // eased, it would be a slow zoom, and the whole point is that it is a hit.
+  camera.fov += punch * CAM.boostFov;
   camera.updateProjectionMatrix();
 }
 
@@ -727,14 +1139,22 @@ const showRight = new THREE.Vector3();
  * the driver's head, which is the one shot that says nothing about who you picked.
  * Added to the chair's yaw it is always the same view of the driver.
  *
- * 2.82 rad is 18° off the nose. The first still stood at 42° — a proper three-quarter —
- * and at that angle, on a figure whose face is four flat clay planes under a hat brim,
- * the head reads as the *back* of a head. Being right about the geometry is not the
- * same as being right about the picture: this figure only reads as facing you when it
- * is nearly facing you, so the shot is almost frontal with just enough turn to keep it
- * from being a passport photograph.
+ * π is dead in front: the driver looks down the lens.
+ *
+ * This walked in from 42° — a proper three-quarter — to 2.82 rad, which is 18° off the
+ * nose, on the argument that a figure whose face is four flat clay planes needs to be
+ * nearly frontal before it reads as a face at all, but that a little turn keeps the
+ * shot from being a passport photograph. The first half of that was right and the
+ * second half was the mistake: at 18° the driver is not looking at you, he is looking
+ * just past your shoulder, and on a character select — where the entire question being
+ * asked is *who is this* — being looked at is worth more than being composed.
+ *
+ * So it is frontal, and the shot gets its asymmetry from somewhere that costs nothing:
+ * `showcase` already aims off the chair to put it in the right third of the frame, and
+ * the seat turns on its own below. A subject squared up to the lens in an off-centre
+ * frame is a portrait; it was only ever the *pose* that risked being a passport photo.
  */
-const SHOW_ANGLE = 2.82;
+const SHOW_ANGLE = Math.PI;
 
 /**
  * And the angles it will settle for, in order of preference.
@@ -830,7 +1250,7 @@ function heroShot(boom: number): { angle: number; clear: number } {
     // makes the camera hop to a different side of him.
     const yaw = showYaw + angle;
     probe.set(Math.sin(yaw), lift, Math.cos(yaw)).normalize();
-    const clear = physics.rayToStatic(pivot, probe, boom + CAM.margin, chair.body);
+    const clear = physics.rayToSolid(pivot, probe, boom + CAM.margin, chair.body);
     if (clear >= boom) return { angle, clear };
     if (clear > bestClear) {
       bestClear = clear;
@@ -956,10 +1376,31 @@ function applySize(force = false): void {
   camera.updateProjectionMatrix();
 }
 
+/**
+ * The quality ladder now moves two things, and the second is the one that matters.
+ *
+ * Measured on one frame: scene 979 draws and 4.2 M triangles in **2.3 ms**, the
+ * whole simulation **1.55 ms**, the post chain **17.6 ms**. Nine tenths of the
+ * frame is six full-screen passes, so a controller that only ever scaled the
+ * buffer was rearranging the 11% it could reach. On a machine that could not hold
+ * 60 it walked the pixel ratio down to its floor and then had nothing left to
+ * give, still running ambient occlusion and a full-resolution bokeh.
+ *
+ * So the bottom of the ladder cuts passes instead. The mapping is deliberately
+ * blunt — there is no point interpolating between "runs" and "does not" — and it
+ * is keyed off the ratio the controller settled on, because that is exactly its
+ * verdict on how much machine there is.
+ *
+ * The floor comes down to 1.0 as well. 1.25 was never a floor for a weak machine,
+ * it was a floor for a good one: on a HiDPI laptop it is a buffer 56% larger than
+ * the panel, which is the most expensive rung being treated as the cheapest.
+ */
 const quality = createQuality({
+  min: 1,
   max: Math.min(devicePixelRatio, 2),
   apply: (next) => {
     ratio = next;
+    post.setDetail(next >= 1.75 ? 2 : next >= 1.25 ? 1 : 0);
     applySize(true);
   },
 });
@@ -967,9 +1408,23 @@ const quality = createQuality({
 const focusPoint = new THREE.Vector3();
 
 function tick(dt: number): void {
+  // Where the player is round the lap, first, because everything below reads it: the
+  // rivals' rubber band, which side one comes past on, the standings, and which chair
+  // an item is thrown at. It used to sit in `frame` immediately above the call to
+  // this — the same once a frame, in the same order — and moving it in is what makes
+  // a tick a whole step of the game rather than most of one.
+  trackPlayer();
+  readPlayer();
   readInput();
+  boostThisFrame = 0;
+  impactThisFrame = 0;
   physics.step(dt, (h) => {
     chair.update(h, input);
+    // The loudest of whatever happened across this frame's substeps. Taken here
+    // because `takeBoost` clears itself, and a substep that is not read is a
+    // boost that never happened as far as the screen is concerned.
+    boostThisFrame = Math.max(boostThisFrame, chair.takeBoost());
+    impactThisFrame = Math.max(impactThisFrame, chair.telemetry().impact);
     driver.update(h, chair.telemetry(), input);
     const p = chair.body.translation();
     const v = chair.body.linvel();
@@ -987,10 +1442,40 @@ function tick(dt: number): void {
      * deciding which side of the player to come past on.
      */
     rivals.update(h, race.phase === 'racing', player, race.totalTime);
+
+    /*
+     * And the items, last in the step, because everything they read has just moved.
+     *
+     * In here rather than on the frame for the reason the field is: a card doing
+     * twelve metres a second covers 200 mm between paints on a good frame and 600 on
+     * a bad one, and a hit resolved once a frame is a hit that depends on the frame
+     * rate. The same argument `race.ts` makes about the finish line.
+     */
+    seatEveryone();
+    itemPlay.update(h, seats, race.totalTime);
+    projectiles.update(h, seats);
   });
   chair.sync();
   dynamics.sync();
   driverRig.apply(driver.pose);
+
+  /*
+   * Hand this frame's events to the camera before it is moved, so the punch and
+   * the kick are on the shot that gets drawn rather than the one after it.
+   *
+   * The impact threshold is 1.4 m/s of speed lost. Below that is a kerb, a
+   * threshold strip or a rival's flank brushed at an angle — things that happen
+   * constantly and must not shake the frame, or the whole lap trembles.
+   */
+  if (boostThisFrame > 0) punch = Math.min(1, boostThisFrame / DRIFT_TIERS.length);
+  if (impactThisFrame > 1.4) {
+    kick = Math.min(1, impactThisFrame * CAM.kickPerImpact / CAM.maxKick);
+    // Thrown away from whichever side took it, so a wall clipped on the left
+    // rolls the shot right. Sideways speed is the only clue available about
+    // where the hit came from and it is the right one.
+    kickSide = chair.telemetry().lateralRight >= 0 ? -1 : 1;
+  }
+
   updateCamera(dt);
   lighting.update(chair.object.position);
   // After the camera, because what the pool should light is what is about to be
@@ -1000,8 +1485,26 @@ function tick(dt: number): void {
   focusPoint.copy(chair.object.position);
   focusPoint.y += 0.55;
   post.focusOn(camera, focusPoint);
-  donuts.update(dt, race.gate, race.lap, chair.object.position);
   routeAim.update(chair.object.position);
+  crowd.update(dt);
+
+  // The boxes on the frame rather than in the step, unlike everything else about
+  // items — a piñata is nearly a metre across, nothing takes one at more than
+  // 8.6 m/s, and 70 mm of frame-rate slop against a 720 mm reach is not a
+  // race-deciding quantity. What it buys is the bob, the spin and the burst running
+  // on the same clock the rest of the scene animates on.
+  pinatas.update(
+    dt,
+    seats,
+    (id) => race.live && itemPlay.wants(id),
+    (id) => void itemPlay.give(id, itemPlay.placeOf(id)),
+  );
+
+  // Whatever the player is dragging, drawn where they are dragging it. Nothing
+  // collides with it — the shield is resolved in `items.absorb` at the moment of the
+  // hit — so this is purely the picture of one.
+  const slot = itemPlay.slots[0]!;
+  projectiles.trail(slot.trailing ? slot.held : null, chair.object.position, chair.object.rotation.y);
 }
 
 const clock = new THREE.Clock();
@@ -1155,8 +1658,6 @@ function frame(): void {
       chair.object.rotation.y = showYaw;
       updateCamera(0, true);
     }
-    trackPlayer();
-    readPlayer();
     tick(dt);
 
     // The rivals' own animation. Synthetic telemetry: they have a speed and
@@ -1182,8 +1683,24 @@ function frame(): void {
    * asks about. They come back the moment the menu closes, which is also the
    * moment they mean something.
    */
+  /*
+   * The pickups are down whenever the front end is up, checked every frame.
+   *
+   * This used to sit inside the transition below with everything else, which is a
+   * reasonable saving on two boolean writes and was hiding a real failure: if the
+   * frame the menu opened on never ran the comparison — a throttled tab, a frame
+   * dropped on the way into the title — nothing ever put them away again, and the
+   * character select was shot with a piñata row over the driver's shoulder and a
+   * checkpoint donut in the corner.
+   *
+   * It never showed while the showroom was down in the car park, because there is
+   * nothing to see there. Moving the shot into the open plan, six metres from a
+   * row, is what made a latent bug into the first thing in frame. Two writes a
+   * frame is not a cost worth a class of bug.
+   */
+  showPickups(staged);
+
   if (staged !== orbiting) {
-    showDonuts();
     // Bloom is a driving effect. See the note on `glow` in post.ts.
     post.glow(!staged);
     // And the character select is shot on a different lens: open the aperture so the
@@ -1211,6 +1728,10 @@ function frame(): void {
   // no speed to read, and during the half second between the title card wiping and the
   // menu arriving the whole instrument set used to flash up over the hero shot.
   hud.setVisible(!menu.open && race.phase !== 'grid');
+  itemHud.setVisible(!menu.open && race.phase !== 'grid');
+  rush.setVisible(!menu.open && race.phase !== 'grid');
+  rush.update(dt, chair.speed() * 3.6, chair.driftCharge(), chair.driftTier(), boostThisFrame);
+  itemHud.update(dt, itemPlay.held, itemPlay.slots[0]!.trailing);
 
   // The taxiway sign points down the racing line rather than at the gate: a bearing
   // to a checkpoint through a wall, across a junction, or on the level below is
@@ -1273,8 +1794,26 @@ if (import.meta.env.DEV) {
       race,
       quality,
       lighting,
-      donuts,
       routeAim,
+      pinatas,
+      crowd,
+      projectiles,
+      itemPlay,
+      rush,
+      seats,
+      /*
+       * The fixed-step tick and the key set, on the handle.
+       *
+       * The three gates above already take these — `tunnelTest` says why in its own
+       * header: it runs off the tick rather than the render loop, so it needs
+       * neither a visible tab nor a single rendered frame. Everything about items
+       * wants the same thing, and wants it interactively: a request animation frame
+       * that is throttled or suspended (a background tab, an embedded preview pane)
+       * leaves the whole simulation frozen with the countdown still on screen, and
+       * there is then no way to ask a question about a race.
+       */
+      tick,
+      keys,
       pool,
       post,
       CAM,

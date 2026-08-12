@@ -66,8 +66,28 @@ const span = Math.hypot(b[0] - a[0], b[1] - a[1]);
 export const LINE: readonly [number, number] = [a[0], a[1]];
 /** The direction the race runs at the line, as a unit vector in plan. */
 export const RUN: readonly [number, number] = [(b[0] - a[0]) / span, (b[1] - a[1]) / span];
-/** Across the line, to the racing right. */
-export const ACROSS: readonly [number, number] = [-RUN[1], RUN[0]];
+/**
+ * Across the line, to the racing right — and it has to be the *route's* right.
+ *
+ * `rivals.ts` applies a lane offset on the route's own right-hand normal, which
+ * for a heading θ measured as `atan2(dx, dz)` is `(cos θ, −sin θ)`. The grid was
+ * authored as `(−RUN.z, RUN.x)`, which is that vector negated: the grid's right
+ * was the route's left.
+ *
+ * Which meant the arrangement looked perfect and then came apart at the one
+ * moment everybody is watching. A chair holds its slot through the countdown,
+ * crosses the line, and on the first frame its progress goes positive the same
+ * lane number is suddenly measured the other way round — so it changes sides.
+ * Measured, that was a **1.10 m sideways jump in a single frame**, on all four
+ * chairs at once, half a second after the flag, against the 0.09 m a chair
+ * actually travels in a frame at racing pace. The whole field swapping sides in
+ * one frame is what "the riders bug around at the start" was.
+ *
+ * The slots are a symmetric pair either side of the line, so flipping this
+ * changes nothing about how the grid looks — only which chair is on which side,
+ * and that it stays there.
+ */
+export const ACROSS: readonly [number, number] = [RUN[1], -RUN[0]];
 
 /**
  * The heading a chair on the grid faces, in the chair's own yaw convention.

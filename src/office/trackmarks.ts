@@ -10,7 +10,7 @@
  * The checkpoints used to live here too — first as bands of hazard tape at every
  * gate, then as pink rings hanging at head height. Both are gone, and the second
  * one is the interesting removal: the rings worked, and they were still deleted,
- * because the clay skin's donuts (`skins/clay/donuts.ts`) are the same idea done
+ * because the clay skin's floating pickups are the same idea done
  * once more and better, and two pieces of arcade furniture marking the same
  * eleven planes is one piece of furniture and one bug waiting to disagree with
  * it. A checkpoint should have exactly one appearance.

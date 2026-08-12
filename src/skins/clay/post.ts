@@ -65,6 +65,37 @@ export type ClayPost = {
   glow(on: boolean): void;
   /** Open the lens and close the frame in, for the character select. */
   portrait(on: boolean): void;
+  /**
+   * How much of the chain to run: 2 everything, 1 without the expensive two, 0 grade only.
+   *
+   * ---- why this had to become a dial ---------------------------------------
+   *
+   * Measured, on one frame: the scene is **979 draw calls and 4.2 M triangles in
+   * 2.3 ms**, the whole simulation is 1.55 ms, and this chain is **17.6 ms**. That
+   * is 89% of the frame going through six full-screen passes, and it is the entire
+   * reason the game is heavy — nothing to do with the building, the field or the
+   * items.
+   *
+   * What made it unfixable from outside is that `render/quality.ts` only ever
+   * moved the *pixel ratio*. On a machine that cannot hold 60 it dropped the
+   * buffer a rung at a time and then ran out of rungs, still running ambient
+   * occlusion, a full-resolution depth-of-field blur, five mip levels of bloom and
+   * two more passes on top. Scaling the resolution of an already-too-long chain is
+   * the one adjustment that cannot save it.
+   *
+   * So the tiers cut passes rather than pixels, in the order of what costs most
+   * against what is missed least:
+   *
+   *   2  everything, as authored.
+   *   1  no GTAO and no depth of field. Those two are the expensive pair, and both
+   *      are *depth* effects — what goes is contact shading and a soft background,
+   *      neither of which a driver reads at six metres a second. Bloom stays,
+   *      because the hot golden-hour light is the look and losing it is losing the
+   *      art direction rather than a refinement.
+   *   0  grade only. The vignette and the curve, which are what keep the palette
+   *      the palette. Everything else off.
+   */
+  setDetail(tier: 0 | 1 | 2): void;
   /** Feed it the chair each frame. `focus` is the point to hold sharp. */
   focusOn(camera: THREE.Camera, focus: THREE.Vector3): void;
   dispose(): void;
@@ -125,6 +156,14 @@ export function createClayPost(
 
   return {
     render: () => composer.render(),
+
+    setDetail(tier) {
+      // `enabled` is the composer's own switch and costs nothing when false: a
+      // disabled pass is skipped entirely rather than run and discarded.
+      gtao.enabled = tier >= 2;
+      bokeh.enabled = tier >= 2;
+      bloom.enabled = tier >= 1;
+    },
 
     /**
      * Take the glow off, for the turntable.

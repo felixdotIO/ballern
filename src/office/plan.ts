@@ -482,19 +482,31 @@ export const openingWidth = (kind: OpeningKind, width = 2.5): number => {
 export const WALLS: readonly Wall[] = [
   // -- the one line across the floorplate ------------------------------------
   {
-    // Kantine to Grossraum. Two openings, because a canteen at lunchtime has a
-    // way in and a way out and a queue standing between them. The lower one is
-    // the one on the lap.
+    /*
+     * Kantine to Grossraum. One opening now, and it used to be two.
+     *
+     * A canteen at lunchtime has a way in and a way out with a queue standing
+     * between them, which is why there were two — and the note that used to sit
+     * here claimed the lower one was "the one on the lap". Measured against
+     * `ROUTE`, the lap crosses this wall's line only at z=29.4 and z=36.7, which
+     * are both down in the hall: it does not use *either* opening. The Grossraum
+     * is entered and left across `Z.band` at the south, not through the canteen.
+     *
+     * Which made both of them free money. The lap runs east along the north side
+     * of the Grossraum at z≈2.4 and comes back west at z≈12, so a chair that
+     * ducks through the northern hole is inside the canteen alongside a leg of the
+     * lap it has not driven, with the wall doing the work of hiding it.
+     *
+     * So the northern one is bricked up and the southern one stays. One opening is
+     * still a canteen with a door; two was a canteen with a bypass through it.
+     */
     id: 'part.kitchen|office',
     axis: 'z',
     at: X.westRooms,
     from: Z.north,
     to: Z.band,
     kind: 'partition',
-    openings: [
-      { kind: 'void', at: 4.0, width: 2.5, height: 2.25 },
-      { kind: 'void', at: 11.0, width: 3.75, height: 2.25 },
-    ],
+    openings: [{ kind: 'void', at: 11.0, width: 3.75, height: 2.25 }],
   },
   {
     // Kantine to Besprechung: a pair of leaves, because the big meeting room is
@@ -920,26 +932,42 @@ export const SPAWN = { position: [64.483, 0.6, 37.652] as const, yaw: 1.67046 };
  *
  * The front end used to stage the driver wherever the race was about to start — on
  * the grid, in the reception hall, against the east glazing. That is the honest
- * default and it is the wrong room. A character select is a garage scene in every
- * game that has ever had one, for a reason that survives the cliché: a lit figure
- * against a dark, enclosed, mechanical backdrop reads as *equipment being chosen*,
- * where the same figure against a sunlit office window reads as a photograph of an
- * office. This building already has the right room in it — a windowless concrete
- * parking level with cages, columns and a wash box — and it was being driven through
- * three times a lap and never once looked at.
+ * default and it is the wrong room, so for a while this was the car park: a lit
+ * figure against a dark, enclosed, mechanical backdrop is what every character
+ * select in every game has always been, and the building already had a windowless
+ * concrete level nobody was looking at.
  *
- * The spot is the clear lane up the east side of Ebene 5: measured against the
- * solver, it is open from z=6 to z=36 with nothing within two and a half metres, so
- * the camera's boom never clamps and there is nothing between the lens and the
- * subject. Facing north, up the lane, which puts the length of the level behind the
- * chair — depth for free, and the one thing the hall could not offer at any angle.
+ * It is the open plan now, and the reason is worth keeping because it beats the
+ * argument it replaced. The garage shot is *generically* correct and this game is
+ * not a generic one: what is funny about it — the entire premise — is that these
+ * are office workers racing office chairs between the desks they sit at all day.
+ * A driver photographed in a car park could be from any kart racer ever made. The
+ * same driver photographed in front of a bank of beige CRTs, with task chairs
+ * pushed in at every desk behind him, tells you what the game is before a word of
+ * it is read. The joke is the room, and the character select was hiding it.
  *
- * The lighting needs no help: the level has no daylight, `render/lights.ts` flies the
- * fitting pool to wherever the camera is, and the menu's own portrait rig is placed
- * against the camera rather than the compass. A dark room with one lit chair in it is
- * exactly what the rig was built for.
+ * The spot is measured rather than picked. Nowhere in the Großraum has the two and
+ * a half metres of clearance the car park offered — it is full of desks, which is
+ * the point of it — so the search was for somewhere on the *racing line*, which is
+ * guaranteed clear because the lap runs down it.
+ *
+ * The requirement that decides it is the **frontal boom**. The driver looks down
+ * the lens (see `SHOW_ANGLE` in `skins/clay/main.ts`), which means the camera
+ * stands directly in front of him and needs its full 3.13 m there — and the first
+ * spot chosen, on the north aisle, had the north wall 2.4 m off his nose. The shot
+ * silently fell back to an off-angle and the driver went on looking past your
+ * shoulder.
+ *
+ * The return aisle at x=52 carries it: 3.13 m clear in front with no fallback, and
+ * thirty metres of open plan running away west behind him — the whole length of
+ * the room as backdrop. Facing east, down the aisle.
+ *
+ * The lighting still needs no help. `render/lights.ts` flies the fitting pool to
+ * wherever the camera is and the portrait rig is placed against the lens rather
+ * than the compass, so the room being lit rather than dark changes nothing about
+ * how the figure is lit — only what is behind it.
  */
-export const SHOWROOM = { position: [26.5, LEVELS.garage, 26.0] as const, yaw: 0 };
+export const SHOWROOM = { position: [52.0, LEVELS.floor, 12.0] as const, yaw: -Math.PI / 2 };
 
 /**
  * The canonical lap, as a polyline through room centres and doorways.
@@ -963,7 +991,21 @@ export const ROUTE: readonly (readonly [number, number, number])[] = [
   // South of the desk and south of the belt line, because both are in the way
   // — which is the point of putting a reception desk where you actually meet it.
   [55.0, 38.6, 0],
-  [48.0, 38.0, 0],
+  /*
+   * 38.8 rather than 38.0, and it is the reception counter that moved it.
+   *
+   * The desk's collider used to be authored across the counter rather than along
+   * it — a 3.7 m box lying east–west through a 3.6 m counter running north–south
+   * — so most of the desk stopped nothing and the racing line appeared to have
+   * plenty of room beside it. With the box corrected to the counter's real
+   * footprint the line was suddenly passing the north edge with 0.39 m of
+   * clearance against a 0.33 m chair: 60 mm, which is not a racing line, it is a
+   * scrape. `dev/routeTest.ts` reported it the moment the collider was fixed.
+   *
+   * Eight hundred millimetres north puts it at 0.87 m and leaves the line still
+   * south of the belt posts, which is the other thing this stretch has to thread.
+   */
+  [48.0, 38.8, 0],
   [43.5, 37.0, 0],
   [41.2, 36.9, 0],
   [40.0, 36.9, 0], // out through the entrance doors, between the standing leaves
@@ -1153,21 +1195,50 @@ export type Gate = {
   y?: number;
 };
 
+/*
+ * ---- how wide a gate is, and why every one of these was wrong -------------
+ *
+ * A gate is a plane you cross, and `halfWidth` says how far off its centre the
+ * crossing may be. Those numbers were authored by eye, as the width of the thing
+ * the gate is *about* — a doorway, an aisle, a lane — and eight of the fourteen
+ * turned out to be narrower than the floor a chair can actually drive across at
+ * that point. Measured against the solver, the contiguous drivable run through
+ * `Server Room` is 10.2 m wide and the gate registered 3.6 m of it; `Kitchen` was
+ * 4.0 m of a 9.7 m opening; the `Finish` 8.4 m of 9.5 m.
+ *
+ * Which means you could drive straight through the place a checkpoint is, on a
+ * perfectly reasonable line, and it would not count — and nothing would say so.
+ * Measured, six tenths of a metre off the racing line was enough to miss
+ * `Server Room` and never complete a lap.
+ *
+ * It went unnoticed for as long as there were donuts. A donut hung at the gate's
+ * centre, one at a time, lit by a travelling light, and players drove *at* it — so
+ * everybody threaded the middle of every gate without knowing that was what they
+ * were doing. Take the marker away and the same lap silently stops counting. The
+ * feature that was removed was not the checkpoint, it was the aiming aid that hid
+ * how small the checkpoints were.
+ *
+ * So each width below is now the drivable opening at that point, measured rather
+ * than judged, with 150 mm of margin. Two rules on top: nothing was ever made
+ * *narrower* — several openings are tighter than their gate, and a gate that is
+ * generous where the building is not costs nothing — and no centre moved, so the
+ * wayfinder chevron and the plan still point exactly where they did.
+ */
 export const GATES: readonly Gate[] = [
   // Across the hall by the east glazing, which is what the belt posts and the
   // tape on the stone are marking.
-  { label: 'Finish', at: [61.0, 38.0], normal: [-1, 0], halfWidth: 4.2 },
+  { label: 'Finish', at: [61.0, 38.0], normal: [-1, 0], halfWidth: 8.35 },
   // The entrance doors. You are leaving the building through the front.
   { label: 'Entrance', at: [40.0, 36.875], normal: [-1, 0], halfWidth: 3.2 },
   // Halfway up the main aisle, alongside the parked cars.
-  { label: 'Car Deck', at: [8.1, 18.0], normal: [0, -1], halfWidth: 2.6 },
+  { label: 'Car Deck', at: [8.1, 18.0], normal: [0, -1], halfWidth: 3.05 },
   // Over the lip of the down ramp. The one gate on the lap you cross while the
   // floor is falling away underneath you.
   { label: 'Ramp Down', at: [2.5, 8.75], normal: [0, 1], halfWidth: 2.3 },
   // Ebene 5's out lane, northbound, directly under the deck's aisle and three
   // metres below it. The two are three hundred millimetres apart on the map and
   // driven opposite ways, which is the whole reason a gate carries a level.
-  { label: 'Level 5 North', at: [7.8, 18.0], normal: [0, -1], halfWidth: 2.1, y: LEVELS.garage },
+  { label: 'Level 5 North', at: [7.8, 18.0], normal: [0, -1], halfWidth: 6.25, y: LEVELS.garage },
   // And the back lane coming down, on the other side of the column line. Two
   // gates for one level, for the same reason the Grossraum has two: without the
   // second, half of the level below is a place you drove past.
@@ -1179,17 +1250,17 @@ export const GATES: readonly Gate[] = [
   // next to each other.
   { label: 'Ramp Up', at: [18.125, 30.0], normal: [0, -1], halfWidth: 1.7, y: LEVELS.garage },
   // Across the canteen on the diagonal, between the tables and the servery.
-  { label: 'Kitchen', at: [29.5, 8.4], normal: [1, 0], halfWidth: 2.0 },
+  { label: 'Kitchen', at: [29.5, 8.4], normal: [1, 0], halfWidth: 5.35 },
   // The north lane of the open-plan, hard against the glazing.
-  { label: 'Open Plan North', at: [52.0, 2.4], normal: [1, 0], halfWidth: 1.7 },
+  { label: 'Open Plan North', at: [52.0, 2.4], normal: [1, 0], halfWidth: 2.05 },
   // And the south lane coming back, on the other side of the desk run. Two
   // gates for one room, because without the second one half of the longest
   // room on the floor is optional.
-  { label: 'Open Plan South', at: [52.0, 12.0], normal: [-1, 0], halfWidth: 1.1 },
+  { label: 'Open Plan South', at: [52.0, 12.0], normal: [-1, 0], halfWidth: 1.45 },
   // Down the machine room's cold aisle.
-  { label: 'Server Room', at: [44.0, 20.0], normal: [-1, 0], halfWidth: 1.8 },
+  { label: 'Server Room', at: [44.0, 20.0], normal: [-1, 0], halfWidth: 5.95 },
   // Across the meeting room, corner to corner past the table.
-  { label: 'Meeting Room', at: [30.0, 23.6], normal: [-1, 0], halfWidth: 2.0 },
+  { label: 'Meeting Room', at: [30.0, 23.6], normal: [-1, 0], halfWidth: 3.55 },
   // The corridor, the whole way, back to the hall.
   { label: 'South Corridor', at: [33.0, 29.4], normal: [1, 0], halfWidth: 1.6 },
 ];

@@ -55,10 +55,28 @@ import { CHAIR } from '../office/metrics';
 import { ACROSS, GRID, LINE, RUN, type GridSlot } from './grid';
 import type { Physics } from './physics';
 
-/** Same capsule as the player's, for the same reason: it is the same chair. */
+/** Same footprint as the player's, for the same reason: it is the same chair. */
 const RADIUS = CHAIR.baseDiameter / 2;
-const HALF_HEIGHT = 0.22;
-const CENTRE_Y = HALF_HEIGHT + RADIUS;
+
+/**
+ * But taller than the player's, because it has to include the person in it.
+ *
+ * The player's capsule is sized off the five-star base and stops at 1.1 m, which
+ * is the right shape for the thing it does — deciding whether a chair fits through
+ * a doorway, where the rider is irrelevant because he is directly above the base.
+ * A rival's collider has a second job the player's does not: it is what the chase
+ * camera's occlusion ray hits, and *that* question is about the whole silhouette.
+ *
+ * At 1.1 m the ray flew straight over the top of it. The lens then arrived, at
+ * about 1.4 m, exactly where the rider's head is drawn — measured, 140 mm from
+ * the middle of it, which on screen is the inside of a skull. The capsule was
+ * reporting a chair where the player could see a person.
+ *
+ * 1.5 m tall, then: an office chair with somebody sitting on it. The footprint is
+ * untouched, so nothing about driving into one changes — only what it blocks.
+ */
+const RIDER_HALF = 0.42;
+const CENTRE_Y = RIDER_HALF + RADIUS;
 
 /**
  * The grid, as slots rather than as people.
@@ -168,6 +186,24 @@ const TUNING = {
   bandFull: 45,
   /** Seconds to drift from a starting block across to a racing line. */
   findsLine: 3.5,
+
+  /*
+   * ---- being hit -----------------------------------------------------------
+   *
+   * A rival cannot be knocked off its line, and that is the price of the rail —
+   * see the note at the top of this file. What it can be is *stopped*, and that
+   * turns out to be the same thing where it counts: a chair held at a standstill
+   * for a second and a quarter loses six or seven metres of route to everybody
+   * still moving, which is exactly what a spin-out costs the player.
+   *
+   * 9 m/s² brings one from racing pace to nothing in about six tenths, so the
+   * back half of a hit is spent stationary rather than trickling.
+   */
+  stunBrake: 9,
+  /** Spun at the same rate the player is, for the same reasons. */
+  stunSpin: 9,
+  /** What a faceful of extinguisher powder costs, as a factor on pace. */
+  blindPace: 0.74,
 } as const;
 
 /**
@@ -231,7 +267,30 @@ const TRAFFIC = {
    */
   commits: 1.5,
   /** Seconds between clearance probes. See `swayCap`. */
-  probes: 0.12,
+  /**
+   * How far up the road the width of it is taken account of, metres.
+   *
+   * 2.4, which is a shade under half a second at racing pace — far enough that a
+   * chair has time to pull its line in before it arrives at the pinch, and short
+   * enough that it is not driving down the middle of a wide room because there is
+   * a doorway somewhere in the distance.
+   */
+  probeAhead: 3.2,
+  /**
+   * Seconds the cap takes to follow the road, rather than jumping to it.
+   *
+   * The table is sampled every 400 mm, so the width it reports changes in steps —
+   * and a clamp applied raw turns each step into a sideways hop. Measured, up to
+   * 490 mm in a single frame, against the 92 mm a chair covers in one at pace:
+   * a visible twitch every time somebody reached a doorway.
+   *
+   * Easing it is only safe because of the look-ahead above, which is the whole
+   * reason the two numbers are set together: at racing pace 3.2 m is 580 ms of
+   * warning, so a cap that takes 300 ms to arrive is fully tightened with half
+   * the margin still unspent. The chair now draws its line in as it approaches
+   * the pinch, which is also simply what a driver does.
+   */
+  capEases: 0.3,
 } as const;
 
 /** What the rest of the game can see of one rival. */
@@ -249,6 +308,8 @@ export type Rival = {
   readonly finished: boolean;
   /** Its total time, once it has one. */
   readonly time: number | null;
+  /** Seconds of spin-out left. Nothing throws at a chair already out. */
+  readonly stunned: number;
 };
 
 /** The route, as much of it as this needs. `skins/clay/routePath.ts` builds it. */
@@ -282,6 +343,24 @@ export type Rivals = {
    * everyone else: pick the boss and the boss stops being on the grid.
    */
   setDrivers(drivers: readonly Driver[]): void;
+
+  /*
+   * ---- what an item may do to one ------------------------------------------
+   *
+   * The mirror of `chair.stun` / `push` / `shove`, minus the one a rail cannot
+   * honour. There is no `shove`: a rival's position is its distance along the
+   * route plus a lane offset, so a sideways impulse has nowhere to go. Callers
+   * pass the blast's shove for the player and drop it for the field, and the
+   * asymmetry is invisible — what a player reads off an opponent is that it
+   * stopped and spun, not the direction it ended up facing.
+   */
+  /** Spun out and brought to a stop where it stands. */
+  stun(index: number, seconds: number): void;
+  /** A extinguisher's push, as pace rather than as an impulse. */
+  push(index: number, speed: number, seconds: number): void;
+  /** A faceful of powder: it cannot be blinded, so it is slowed instead. */
+  blind(index: number, seconds: number): void;
+
   /**
    * The player's position in the field, 1-based.
    *
@@ -322,20 +401,23 @@ type State = {
   /**
    * The widest it may sit off the racing line here without being in the building.
    *
-   * The lane offset used to be applied blind, and through the tighter doorways on
-   * this lap — the meeting room, the cage store, the foot of the up ramp — 360 mm of
-   * it puts a chair through a frame. Re-probed against the solver a few times a
-   * second rather than every step: a wall does not move, and eight shape queries a
-   * second per rival is nothing beside four of them driving through it.
+   * Read off the width table built in `createRivals` rather than probed: a wall
+   * does not move, so neither does the answer. See the note above `widths`.
    */
   swayCap: number;
-  probeIn: number;
   /** Which side a pass is being made on, the lane it goes to, and for how long. */
   move: -1 | 0 | 1;
   moveOut: number;
   moveFor: number;
   /** Where the slow drift in its pace has got to. See `steady`. */
   mood: number;
+  /** Seconds of spin-out left, and how far round the hit has turned it. */
+  stunned: number;
+  spin: number;
+  /** A push, and how long it still counts for. Plus a faceful of powder. */
+  boost: number;
+  boostFor: number;
+  blindFor: number;
   /** Height, vertical speed, and whether it is off the ground. See `settle`. */
   y: number;
   vy: number;
@@ -377,7 +459,7 @@ export function createRivals(
       RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(0, CENTRE_Y, 0),
     );
     physics.world.createCollider(
-      RAPIER.ColliderDesc.capsule(HALF_HEIGHT, RADIUS).setFriction(0.02).setRestitution(0.15),
+      RAPIER.ColliderDesc.capsule(RIDER_HALF, RADIUS).setFriction(0.02).setRestitution(0.15),
       body,
     );
 
@@ -390,6 +472,7 @@ export function createRivals(
       progress: 0,
       finished: false,
       time: null,
+      stunned: 0,
     };
 
     states.push({
@@ -401,11 +484,15 @@ export function createRivals(
       speed: 0,
       lane: GRID[i]!.lane,
       swayCap: 0.6,
-      probeIn: 0,
       move: 0,
       moveOut: 0,
       moveFor: 0,
       mood: i * 1.7,
+      stunned: 0,
+      spin: 0,
+      boost: 0,
+      boostFor: 0,
+      blindFor: 0,
       y: 0,
       vy: 0,
       air: false,
@@ -459,14 +546,40 @@ export function createRivals(
    * field off the start line.
    */
   function settle(state: State, h = 0): void {
-    const wander = Math.sin(state.phase) * state.slot.weave * (1.6 - state.driver.drive.flow);
-    const sway = clamp(state.lane + wander, -state.swayCap, state.swayCap);
+    /*
+     * ---- how far off its line this chair is sitting -------------------------
+     *
+     * On the grid: exactly where its slot says, and nowhere else.
+     *
+     * Neither the wander nor the sway cap belongs to a stationary chair. The
+     * wander is a *driving* mannerism — nobody weaves while parked — and the cap
+     * is a width measured on the **route**, which the grid is deliberately not on
+     * (see the note below, and `grid.ts`). Asked for a chair whose progress is
+     * negative, `state.s` wraps round to the far end of the lap, so the clamp on
+     * a car sitting on the start line was being taken from the corridor a metre
+     * *before* the finish.
+     *
+     * That is not a theoretical mismatch, it is what the field was visibly doing
+     * wrong. `reset()` does not recompute the cap, so every race began with
+     * whatever figure each chair happened to be carrying when the last one ended.
+     * Measured, the front row spent the whole countdown squashed onto the centre
+     * line at lane 0.00 — two chairs occupying the same slot — and then jumped
+     * 0.6 and 0.8 m sideways on the first frame after the flag, when the cap was
+     * finally recomputed for somewhere they actually were. Four chairs teleporting
+     * apart on GO, on every restart.
+     *
+     * A grid slot needs no clamping in any case: `grid.ts` sizes the arrangement
+     * against the floor it stands on and says so at length.
+     */
+    const onGrid = state.progress < 0;
+    const wander = onGrid ? 0 : Math.sin(state.phase) * state.slot.weave * (1.6 - state.driver.drive.flow);
+    const sway = onGrid ? state.lane : clamp(state.lane + wander, -state.swayCap, state.swayCap);
     let x: number;
     let z: number;
     let floor: number;
     let yaw: number;
 
-    if (state.progress < 0) {
+    if (onGrid) {
       /*
        * Still on the grid, which is not on the route — see the note at the top of
        * `grid.ts`. Behind the line the route turns ninety degrees into the hairpin
@@ -536,7 +649,9 @@ export function createRivals(
     state.object.position.set(x, floor, z);
     // Facing is the route's heading turned to the game's convention: `headingAt`
     // measures the direction of travel, and a chair at yaw θ faces (−sinθ, −cosθ).
-    state.object.rotation.y = yaw + Math.PI;
+    // Plus however far a hit has knocked it round, which is the only rotation on a
+    // rail chair that is not the route's own.
+    state.object.rotation.y = yaw + Math.PI + state.spin;
     state.body.setNextKinematicTranslation({ x, y: floor + CENTRE_Y, z });
 
     const v = state.view as { -readonly [K in keyof Rival]: Rival[K] };
@@ -552,6 +667,7 @@ export function createRivals(
     v.progress = driven;
     v.finished = state.finished;
     v.time = state.time;
+    v.stunned = state.stunned;
   }
 
   /**
@@ -571,9 +687,9 @@ export function createRivals(
    * `RADIUS + 0.05` rather than `RADIUS`: a chair that is exactly not touching the
    * door frame at twenty kilometres an hour is a chair touching the door frame.
    */
-  function roomAt(state: State): number {
-    track.pointAt(state.s, at);
-    const yaw = track.headingAt(state.s);
+  function measureRoom(s: number): number {
+    track.pointAt(s, at);
+    const yaw = track.headingAt(s);
     const nx = Math.cos(yaw);
     const nz = -Math.sin(yaw);
     let cap = 0;
@@ -581,6 +697,43 @@ export function createRivals(
       if (physics.obstruction(at.x - nx * off, at.y, at.z - nz * off, RADIUS + 0.05).length) break;
       if (physics.obstruction(at.x + nx * off, at.y, at.z + nz * off, RADIUS + 0.05).length) break;
       cap = off;
+    }
+    return cap;
+  }
+
+  /**
+   * The width of the road, everywhere, measured once.
+   *
+   * ---- why this is a table and not a probe ---------------------------------
+   *
+   * Because the answer never changes. The route is fixed, the building is fixed,
+   * and the furniture that is *not* fixed is invisible to `obstruction` anyway —
+   * so "how far off the line can a chair sit at this point of the lap" is a
+   * property of the lap, and re-deriving it eight times a second per chair was
+   * paying a running cost for a constant.
+   *
+   * It also fixes the thing the running version could not. Probing at the wheel
+   * missed anything the chair was about to reach; probing at the wheel *and* a
+   * couple of metres ahead — the first attempt at this — missed everything
+   * *between* those two points, which is most of the road. Measured, that left
+   * one rival driving through `garage.car.a` on the deck: the car sat in the
+   * blind span between the two samples and neither one ever saw it. With a table
+   * there is no sampling decision left to get wrong at runtime — the minimum is
+   * taken over an unbroken run of it.
+   *
+   * 400 mm resolution, which is a little over a chair's radius, so nothing
+   * narrower than a chair can hide between two entries.
+   */
+  const WIDTH_STEP = 0.4;
+  const widths = new Float32Array(Math.max(1, Math.ceil(track.total / WIDTH_STEP)));
+  for (let i = 0; i < widths.length; i++) widths[i] = measureRoom(i * WIDTH_STEP);
+
+  /** The narrowest the road gets between here and `span` metres up it. */
+  function roomOver(s: number, span: number): number {
+    let cap = Infinity;
+    for (let d = 0; d <= span; d += WIDTH_STEP) {
+      const at = ((((s + d) % track.total) + track.total) % track.total) / WIDTH_STEP;
+      cap = Math.min(cap, widths[Math.floor(at) % widths.length]!);
     }
     return cap;
   }
@@ -649,6 +802,15 @@ export function createRivals(
       state.finished = false;
       state.time = null;
       state.phase = i * 2.1;
+      state.stunned = 0;
+      state.spin = 0;
+      state.boost = 0;
+      state.boostFor = 0;
+      state.blindFor = 0;
+      // And the width of the road where it is about to be, not where it last was.
+      // Belt and braces next to the grid's own exemption above, but a stale figure
+      // surviving a restart is precisely the bug that exemption exists to end.
+      state.swayCap = roomOver(0, TRAFFIC.probeAhead);
       settle(state);
     });
   }
@@ -669,6 +831,55 @@ export function createRivals(
           settle(state);
           continue;
         }
+
+        if (state.stunned > 0) {
+          /*
+           * Stopped where it stands, and spinning.
+           *
+           * The route still owns where it is — progress keeps accruing off whatever
+           * speed is left — so a chair hit in a doorway comes to rest in the doorway
+           * rather than halting on the frame it was hit, which reads as a dropped
+           * connection rather than as a collision.
+           *
+           * `settle(state, h)` rather than `settle(state)`: a chair hit in mid-air
+           * over a kicker is still in mid-air, and the zero-step form means *place
+           * it*, which would snap it to the floor. Being knocked out of a jump
+           * should cost you the landing, not delete the jump.
+           *
+           * Clamped rather than merely decremented, because this branch stops
+           * running the moment it reaches zero — an unclamped subtraction leaves a
+           * small negative behind it forever, on the `Rival` view, where the item
+           * rules read it to decide whether a chair is already out.
+           */
+          state.stunned = Math.max(0, state.stunned - h);
+          state.spin += TUNING.stunSpin * h;
+          state.speed = Math.max(0, state.speed - TUNING.stunBrake * h);
+          state.progress += state.speed * h;
+          state.s = ((state.progress % track.total) + track.total) % track.total;
+          state.phase += h * 0.4;
+          // Whatever pass it was in the middle of is off. A chair that comes out of
+          // a spin still committed to a move it began two seconds ago arrives back
+          // on the racing line sideways.
+          state.move = 0;
+          state.moveFor = 0;
+          settle(state, h);
+          continue;
+        }
+
+        /*
+         * And unwound back onto the line once it is over.
+         *
+         * Wrapped to a half turn before it is eased, which is the whole of the fix:
+         * a chair spun through two and a half turns carries fifteen radians, and
+         * easing *that* to zero plays the entire spin again backwards. Wrapping
+         * first means it takes the short way round from wherever it stopped.
+         */
+        if (state.spin !== 0) {
+          const wrapped = Math.atan2(Math.sin(state.spin), Math.cos(state.spin));
+          state.spin = Math.abs(wrapped) < 0.02 ? 0 : wrapped * Math.pow(0.02, h);
+        }
+        if (state.boostFor > 0) state.boostFor = Math.max(0, state.boostFor - h);
+        if (state.blindFor > 0) state.blindFor = Math.max(0, state.blindFor - h);
 
         // What the route does over the next few metres, as a radius. Read ahead
         // rather than at the wheel: a rival that starts slowing once it is already
@@ -713,7 +924,13 @@ export function createRivals(
         // asks for — and the band is a factor on its own pace, not on the corner's
         // limit, because rubber-banding a chair through a doorway faster than it
         // can hold the line is how a pace car ends up in a wall.
-        let target = Math.min(state.driver.pace * band * drift, corner);
+        // Pace, then whatever items have done to it. The corner still caps the lot —
+        // a push through a doorway faster than the line can be held is the same
+        // mistake the band is stopped from making just above.
+        const paced =
+          state.driver.pace * (state.blindFor > 0 ? TUNING.blindPace : 1) +
+          (state.boostFor > 0 ? state.boost : 0);
+        let target = Math.min(paced * band * drift, corner);
 
         /*
          * ---- traffic ------------------------------------------------------
@@ -812,11 +1029,20 @@ export function createRivals(
          * single test at 440 mm says only that 440 mm is not, which leaves nothing to
          * fall back to but the centre of the road.
          */
-        state.probeIn -= h;
-        if (state.probeIn <= 0) {
-          state.probeIn = TRAFFIC.probes;
-          state.swayCap = roomAt(state);
-        }
+        /*
+         * How much road there is, from here to a couple of metres up it.
+         *
+         * The same argument the corner speed makes forty lines up — "a rival that
+         * starts slowing once it is already in the corner is a rival that never
+         * makes the corner" — applied to the width of the road rather than to its
+         * curvature. A lane offset chosen in an open bay used to be held all the
+         * way into the gap beside a table, because the probe only ever reported
+         * the table once the chair was level with it. Now the line tightens before
+         * the pinch and opens again after it, and it costs a handful of array
+         * reads because the table above already knows the answer.
+         */
+        const road = roomOver(state.s, TRAFFIC.probeAhead);
+        state.swayCap += (road - state.swayCap) * Math.min(1, h / TRAFFIC.capEases);
 
         state.progress += state.speed * h;
         state.s = ((state.progress % track.total) + track.total) % track.total;
@@ -849,6 +1075,28 @@ export function createRivals(
     },
 
     reset,
+
+    stun(index, seconds) {
+      const state = states[index];
+      if (!state || state.finished) return;
+      // The longer of the two, never the sum. Same rule as `chair.stun`, same
+      // reason: two things landing at once is one accident.
+      state.stunned = Math.max(state.stunned, seconds);
+      state.boostFor = 0;
+    },
+
+    push(index, speed, seconds) {
+      const state = states[index];
+      if (!state) return;
+      state.boost = Math.max(state.boostFor > 0 ? state.boost : 0, speed);
+      state.boostFor = Math.max(state.boostFor, seconds);
+    },
+
+    blind(index, seconds) {
+      const state = states[index];
+      if (!state) return;
+      state.blindFor = Math.max(state.blindFor, seconds);
+    },
 
     setDrivers(drivers) {
       states.forEach((state, i) => {
