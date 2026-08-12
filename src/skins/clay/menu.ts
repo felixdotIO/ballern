@@ -86,7 +86,7 @@ const CSS = `
   /*
    * The two numbers the whole screen is measured in.
    *
-   * The rail is sized so the wordmark set at --title very nearly fills it: "CHAIR FORCE"
+   * The rail is sized off the wordmark it used to carry as type: "CHAIR FORCE"
    * in Bricolage at 800 measures 5.67 times its own font size, so 5.67 × 5.2vw is a hair
    * under 30vw, and the hairline under the wordmark lands a few pixels wide of the type
    * above it at every window width between the two clamps. That near-miss is the grid,
@@ -95,7 +95,6 @@ const CSS = `
    */
   --rail: clamp(330px, 30vw, 430px);
   --edge: max(5vw, 34px);
-  --title: clamp(40px, 5.2vw, 74px);
 
   /* One curve for the whole screen: a plain ease-out, no overshoot. */
   --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
@@ -193,29 +192,29 @@ const CSS = `
  */
 #menu .brand {
   margin: 0;
-  font-size: var(--title);
-  text-shadow: var(--cast);
+  /* The rail was sized off the wordmark set as type, and it still is — the logo
+     just fills that width instead of nearly filling it. Height follows from the
+     artwork's own ratio, so the rule underneath sits where it always did. */
+  width: 100%;
   transform: translateY(-12px);
   transition: transform 460ms var(--ease);
 }
 #menu.on .brand { transform: none; }
+#menu .brand img {
+  display: block;
+  width: 100%;
+  height: auto;
+  /* The rail is the width the logo wants in the wide layout. In the narrow one
+     the rail *is* the screen, and a logo at 100% of that buries the driver, so
+     the viewport's height gets the final say. */
+  max-height: min(30vh, 250px);
+  object-fit: contain;
+  /* The same cast the type carried, as a shadow the shape can actually take. */
+  filter: drop-shadow(0 6px 18px rgba(20, 14, 8, 0.55));
+}
 #menu .rule { transform: scaleX(0.82); transform-origin: left; transition: transform 520ms var(--ease) 60ms; }
 #menu.on .rule { transform: none; }
-/* Two lines because it is written as two, and never three: the rail is sized off this
-   type, so a wrap here is the grid failing rather than the text being long. */
-#menu .brand span { display: block; white-space: nowrap; }
-/* The second line, which is the amber one and carries the donut. */
-#menu .brand .one { color: var(--amber); display: flex; align-items: baseline; }
-/* The donut standing in for the O of ONE: 0.78 em rather than the 0.68 a cap height
-   measures, because a round letter overshoots a flat one at both ends to look the same
-   size, and 26/100 of the ring's box lands within a hair of Bricolage's stem at 800. */
-#menu .brand .donut {
-  width: 0.78em;
-  height: 0.78em;
-  margin-right: 0.01em;
-  transform: translateY(0.075em);
-  filter: drop-shadow(0 4px 10px rgba(20, 14, 8, 0.5));
-}
+
 /*
  * And the line that closes the block off.
  *
@@ -456,7 +455,6 @@ const CSS = `
   #menu {
     --edge: max(4vw, 22px);
     --rail: min(440px, calc(100vw - 2 * var(--edge)));
-    --title: clamp(38px, 9vw, 66px);
   }
   #menu .rail { left: 50%; transform: translateX(-50%); text-align: center; }
   #menu .brand .one { justify-content: center; }
@@ -518,7 +516,6 @@ const CSS = `
  * is — and when the two disagree the smaller of the two should win.
  */
 @media (max-height: 700px) {
-  #menu { --title: clamp(36px, min(5.2vw, 9.2vh), 74px); }
   #menu .rule { margin-top: 18px; }
   #menu .deck { gap: 30px; }
   #menu .picks { gap: 24px; }
@@ -539,12 +536,8 @@ export function createMenu(hooks: MenuHooks): Menu {
   const root = el('div');
   root.id = 'menu';
 
-  const brand = el('h1', 'brand wm');
-  brand.innerHTML =
-    `<span>Chair Force</span><span class="one">` +
-    `<svg class="donut" viewBox="0 0 100 100" aria-hidden="true">` +
-    `<circle cx="50" cy="50" r="33" fill="none" stroke="var(--pink)" stroke-width="26" />` +
-    `</svg>NE</span>`;
+  const brand = el('h1', 'brand');
+  brand.innerHTML = `<img src="/art/logo.webp" alt="Chair Force One" />`;
 
   const picks = el('div', 'picks');
   const acts = el('div', 'acts');

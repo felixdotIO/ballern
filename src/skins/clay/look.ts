@@ -84,19 +84,11 @@ const CSS = `
 /* -- the registers --------------------------------------------------------- */
 
 /*
- * Four settings of one family, and the optical size axis is doing real work in each:
- * a face cut for 96 px has tighter spacing and finer joins than the same face cut
- * for 14 px, and using the wrong one is most of what makes type look "off" at size.
+ * Three settings of one family, and the optical size axis is doing real work in
+ * each: a face cut for 96 px has tighter spacing and finer joins than the same
+ * face cut for 14 px, and using the wrong one is most of what makes type look
+ * "off" at size.
  */
-.wm {
-  font-family: ${FAMILY};
-  font-weight: 800;
-  font-stretch: 100%;
-  font-variation-settings: 'opsz' 96;
-  text-transform: uppercase;
-  letter-spacing: -0.022em;
-  line-height: 0.92;
-}
 .hd {
   font-family: ${FAMILY};
   font-weight: 700;

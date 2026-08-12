@@ -11,6 +11,7 @@
     <!-- The key art carries the loading screen, so it is wanted on the first paint for
          the same reason the font is: it is the screen, not decoration on it. -->
     <link rel="preload" href="/art/key-art.webp" as="image" />
+    <link rel="preload" href="/art/logo.webp" as="image" />
     <style>
       :root { color-scheme: light dark; }
       /* The dark warm the game is graded in.
@@ -95,41 +96,17 @@
         align-items: center;
         gap: 18px;
       }
-      /* The same lockup the menu opens with, down to the clamp: two lines, the second one
-         amber, and a checkpoint donut standing in for the O of ONE. It is set here by
-         hand rather than imported because this markup has to render before a single
-         module has been evaluated — and if the two ever drift, the wipe between them
-         turns into a cut. */
-      #boot .mark {
-        font-family: 'Bricolage Grotesque', 'Helvetica Neue', Helvetica, sans-serif;
-        font-weight: 800;
-        font-stretch: 100%;
-        font-variation-settings: 'opsz' 96;
-        font-size: clamp(40px, 5.2vw, 74px);
-        line-height: 0.92;
-        letter-spacing: -0.022em;
-        text-transform: uppercase;
-        text-align: center;
-        color: #f6efe2;
-        text-shadow: 0 2px 18px rgba(12, 8, 4, 0.62), 0 1px 3px rgba(12, 8, 4, 0.5);
+      /* The wordmark is artwork now, not type — an inflatable one that no font
+         could stand in for, so there is nothing here to keep in step with the
+         menu beyond the file itself. Sized against the viewport's short edge so
+         it holds the same share of the frame in any window. */
+      #boot .logo {
+        width: auto;
+        height: clamp(150px, 34vh, 340px);
+        max-width: 82vw;
+        object-fit: contain;
+        filter: drop-shadow(0 10px 30px rgba(12, 8, 4, 0.55));
       }
-      #boot .mark span { display: block; white-space: nowrap; }
-      #boot .mark .one {
-        /* Back to the interface's own amber. #d98416 existed only to survive a white
-           background; over the art there is nothing to survive, and the darker hue
-           read as brown against a sunset. */
-        color: #f2a02b;
-        display: flex;
-        align-items: baseline;
-        justify-content: center;
-      }
-      #boot .mark .donut {
-        width: 0.78em;
-        height: 0.78em;
-        margin-right: 0.01em;
-        transform: translateY(0.075em);
-      }
-      /* One hairline and one word, both in the interface's own register. */
       #boot .rule {
         width: clamp(180px, 22vw, 300px);
         height: 1px;
@@ -151,14 +128,7 @@
       <div class="art"></div>
       <div class="scrim"></div>
       <div class="lockup">
-        <div class="mark">
-          <span>Chair Force</span>
-          <span class="one">
-            <svg class="donut" viewBox="0 0 100 100" aria-hidden="true">
-              <circle cx="50" cy="50" r="33" fill="none" stroke="#ee3e7b" stroke-width="26" />
-            </svg>NE
-          </span>
-        </div>
+        <img class="logo" src="/art/logo.webp" alt="Chair Force One" />
         <div class="rule"></div>
         <div class="note">Setting up the office</div>
       </div>
