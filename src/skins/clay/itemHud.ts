@@ -18,21 +18,22 @@
  *            middle of the screen with a progress bar, for exactly as long as
  *            the spin-out lasts.
  *
- * ---- on the one key legend in the game ------------------------------------
+ * ---- and no key legend --------------------------------------------------
  *
- * `hud.ts` says there are none, and it is right: the game is four fingers on WASD
- * and a thumb on the space bar, and a permanent row of captions spelling that out
- * is the interface apologising for itself. Items add a verb that nothing else
- * teaches — nobody guesses E — so the slot names the key for the first two items
- * you ever pick up and then never again. Two is enough to learn it and few enough
- * that it is not part of the furniture.
+ * The slot used to spell out "E throw · Q behind · hold E to shield" for the
+ * first two pickups of a session, on the argument that items add a verb nothing
+ * else teaches. The argument was right and the place was wrong: a caption that
+ * appears on the thing you have just won, in the corner of the frame, at the
+ * exact moment you are looking at the road, is read by nobody and cluttered the
+ * one piece of interface that has to be readable at a glance.
+ *
+ * Controls are explained where somebody is actually reading — the briefing on the
+ * character select, which is up before every race and which nothing is chasing
+ * you through. `hud.ts` gets its rule back: there are no key legends in the game.
  */
 
 import { ITEMS, type ItemKind } from '../../game/items';
 import { el, FAMILY, installLook } from './look';
-
-/** How many pickups still carry the key hint. See the note above. */
-const TAUGHT = 2;
 
 /**
  * The five glyphs, on a 24-unit grid.
@@ -194,7 +195,6 @@ const CSS = `
 }
 
 #items .slot .name { font-size: 14px; letter-spacing: 0.02em; text-shadow: var(--cast); }
-#items .slot .keys { font-size: 11.5px; letter-spacing: 0.13em; text-transform: uppercase; color: var(--paper-3); }
 
 /* -- the powder ------------------------------------------------------------ */
 
@@ -285,9 +285,8 @@ export function createItemHud(): ItemHud {
 
   const token = el('div', 'token');
   const name = el('div', 'name hd');
-  const keys = el('div', 'keys ui', 'E throw · Q behind · hold E to shield');
   const slot = el('div', 'slot');
-  slot.append(token, name, keys);
+  slot.append(token, name);
 
   const powder = el('div', 'powder');
 
@@ -309,7 +308,6 @@ export function createItemHud(): ItemHud {
   document.body.append(root);
 
   let shown: ItemKind | null = null;
-  let taught = 0;
 
   let powderFor = 0;
   let powderSpan = 1;
@@ -334,8 +332,6 @@ export function createItemHud(): ItemHud {
           // saving that only ever buys a bug where one of them is left visible.
           token.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[held]}</svg>`;
           name.textContent = item.short;
-          keys.classList.toggle('hidden', taught >= TAUGHT);
-          if (taught < TAUGHT) taught++;
           // Restarting the landing animation means taking the class off and
           // forcing a reflow before putting it back; without the read the browser
           // coalesces both writes and nothing plays from the second pickup on.

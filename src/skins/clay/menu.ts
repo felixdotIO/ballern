@@ -228,6 +228,89 @@ const CSS = `
  * One column, full height, with the wordmark at the top and everything else pushed to the
  * bottom by a single \`margin-top: auto\`. No card, no panel: the scrim is the ground.
  */
+/* -- the briefing ---------------------------------------------------------- */
+
+/*
+ * A sheet, not a rail item.
+ *
+ * The rail is a list of decisions — who, what, go — and prose is not a decision.
+ * The briefing is the one screen in the game with something to *read*, so it gets
+ * the other half of the frame: the side the driver is standing in, dimmed behind
+ * it, because the moment you are reading you are no longer choosing a driver.
+ *
+ * It is opened deliberately and closed by anything. Nobody should ever be trapped
+ * in a text panel one key press from a race.
+ */
+#menu .briefing {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: max(4vh, 28px) var(--edge) max(6vh, 34px);
+  background: linear-gradient(90deg, rgba(14, 9, 5, 0.55) 0%, rgba(14, 9, 5, 0.88) 45%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 220ms var(--ease);
+}
+#menu .briefing.on { opacity: 1; pointer-events: auto; }
+
+#menu .briefing .sheet {
+  width: min(560px, 92%);
+  max-height: 100%;
+  overflow-y: auto;
+  color: var(--paper);
+}
+#menu .briefing h2 {
+  margin: 0;
+  font-size: clamp(26px, 3.4vw, 40px);
+  line-height: 1.02;
+  letter-spacing: -0.02em;
+}
+#menu .briefing .kicker {
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--hot);
+  margin-bottom: 6px;
+}
+#menu .briefing p {
+  margin: 14px 0 0;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--paper-2);
+  max-width: 46ch;
+}
+#menu .briefing h3 {
+  margin: 22px 0 0;
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--paper-3);
+}
+#menu .briefing dl {
+  margin: 8px 0 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 5px 16px;
+  align-items: baseline;
+  font-size: 14.5px;
+}
+#menu .briefing dt {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  color: var(--paper);
+}
+#menu .briefing dd { margin: 0; color: var(--paper-2); }
+#menu .briefing .dismiss {
+  margin-top: 24px;
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--paper-3);
+}
+
 #menu .rail {
   position: absolute;
   left: var(--edge);
@@ -734,10 +817,65 @@ export function createMenu(hooks: MenuHooks): Menu {
   const art = el('div', 'art');
   art.append(el('div', 'rays'), el('div', 'wash'), el('div', 'vig'));
 
-  root.append(art, rail);
+  /*
+   * The briefing: the one screen in this game with something to read on it.
+   *
+   * It carries two things that had nowhere sensible to live. The controls were
+   * being taught by a caption on the item slot, mid-race, in the corner of the
+   * frame — the worst place to put a sentence in the whole product. And the
+   * *reason for any of this* was nowhere at all: a player arrived at a character
+   * select for a race between office chairs with no idea why office chairs.
+   *
+   * A game does not need a story. It does need somebody to have decided what it
+   * is, and to have written that down where it can be found without being made
+   * compulsory — which is what a briefing behind a menu row is.
+   */
+  const briefing = el('div', 'briefing');
+  const sheet = el('div', 'sheet');
+  sheet.innerHTML = `
+    <div class="kicker">Level 6 · Internal Memo</div>
+    <h2 class="hd">Why we are doing this</h2>
+    <p>The lease on Level&nbsp;6 ends on Friday. The movers come Monday. Until then the
+       floor belongs to whoever is still standing on it, and nobody has booked the
+       meeting rooms since March.</p>
+    <p>It started at the Sommerfest, when Facilities bet the Boss he could not get a
+       task chair from Reception to the Teeküche without putting a foot down. He could.
+       Sales timed it. By the following week there was a route; by the week after there
+       were rules, because Sales went through the canteen and everyone agreed that did
+       not count.</p>
+    <p>So: three laps of the floor, the Parkdeck and Ebene&nbsp;5, past every desk you
+       have ever sat at. The colleagues came down to watch, and they stand in the places
+       where people used to cut the corner. Take the whole route. It is the last week
+       anyone will.</p>
+
+    <h3>Driving</h3>
+    <dl>
+      <dt>W A S D</dt><dd>steer and drive — arrow keys work too</dd>
+      <dt>Space</dt><dd>hold to drift. Hold it longer for a bigger boost: three
+        levels, and the third takes a whole corner to earn</dd>
+      <dt>R</dt><dd>back to the grid</dd>
+      <dt>Esc</dt><dd>this screen</dd>
+    </dl>
+
+    <h3>Piñatas</h3>
+    <p>Drive through one and you get something. What you get depends on where you are
+       lying — last place draws the things that close a gap, the leader draws the things
+       that defend one. Everybody throws, including them.</p>
+    <dl>
+      <dt>E</dt><dd>throw it forwards</dd>
+      <dt>Q</dt><dd>throw it behind you</dd>
+      <dt>Hold E</dt><dd>drag it behind you as a shield until you want it</dd>
+    </dl>
+    <div class="dismiss">Any key to go back</div>`;
+  briefing.append(sheet);
+  briefing.addEventListener('click', () => read(false));
+
+  root.append(art, rail, briefing);
   document.body.append(root);
 
   let open = false;
+  /** Whether the briefing sheet is over the top of the menu. */
+  let reading = false;
   let index = 0;
   let rows: Row[] = [];
   let nodes: HTMLElement[] = [];
@@ -951,9 +1089,13 @@ export function createMenu(hooks: MenuHooks): Menu {
       ...(racing
         ? ([
             { kind: 'button', label: 'Resume', primary: true, enter: () => (hide(), hooks.resume()) },
+            { kind: 'button', label: 'Briefing', enter: () => read(true) },
             { kind: 'button', label: 'Restart', enter: () => (hide(), hooks.restart()) },
           ] as Row[])
-        : ([{ kind: 'button', label: 'Start Race', primary: true, enter: () => (hide(), hooks.start()) }] as Row[])),
+        : ([
+            { kind: 'button', label: 'Start Race', primary: true, enter: () => (hide(), hooks.start()) },
+            { kind: 'button', label: 'Briefing', enter: () => read(true) },
+          ] as Row[])),
     ];
 
     render();
@@ -969,7 +1111,22 @@ export function createMenu(hooks: MenuHooks): Menu {
   function hide(): void {
     if (!open) return;
     open = false;
+    reading = false;
+    briefing.classList.remove('on');
     root.classList.remove('on');
+  }
+
+  /**
+   * Open or close the briefing.
+   *
+   * Closed by *any* key rather than by a named one, and that is deliberate: it is
+   * a page of prose one key press away from a race, and the worst thing a text
+   * panel can do is make somebody hunt for the way out of it. There is nothing to
+   * choose in here, so every key means the same thing.
+   */
+  function read(on: boolean): void {
+    reading = on;
+    briefing.classList.toggle('on', on);
   }
 
   // ---------------------------------------------------------------------------
@@ -988,6 +1145,13 @@ export function createMenu(hooks: MenuHooks): Menu {
       }
 
       e.stopPropagation();
+
+      if (reading) {
+        e.preventDefault();
+        read(false);
+        return;
+      }
+
       const row = rows[index];
 
       switch (e.code) {
