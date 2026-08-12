@@ -8,14 +8,17 @@
          happens long before the module graph that would otherwise discover it has
          finished parsing. -->
     <link rel="preload" href="/fonts/bricolage-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <!-- The key art carries the loading screen, so it is wanted on the first paint for
+         the same reason the font is: it is the screen, not decoration on it. -->
+    <link rel="preload" href="/art/key-art.webp" as="image" />
     <style>
       :root { color-scheme: light dark; }
-      /* Paper, not near-black.
-         The card that covers this is white, and the two have to agree: a body in
-         the dark warm the game is graded in shows as a hairline frame around a
-         white card on any window the canvas has not sized to yet, and as a flash
-         between the card leaving and the first frame arriving. */
-      html, body { margin: 0; height: 100%; background: #ffffff; overflow: hidden; }
+      /* The dark warm the game is graded in.
+         Whatever covers this has to agree with it, or the mismatch shows as a
+         hairline frame on any window the canvas has not sized to yet, and as a
+         flash between the splash leaving and the first frame arriving. It was
+         white while the splash was; the splash is key art now, so this follows. */
+      html, body { margin: 0; height: 100%; background: #241c15; overflow: hidden; }
       canvas { display: block; width: 100%; height: 100%; }
 
       /* Declared here as well as in look.ts, and deliberately: this is the page's own
@@ -35,31 +38,63 @@
        * Building the floor takes about a second and a half — the kit is parsed, the
        * floorplate and its dressing are built, rapier is compiled and every shader is
        * warmed before the first frame is drawn — and a page that shows nothing for that
-       * long reads as broken. So it shows the wordmark, in the same setting the menu
-       * opens with, which makes the hand-over invisible.
+       * long reads as broken. So it shows a splash.
        */
       /*
-       * White, and it is the one screen in the game that is.
+       * A splash: the key art full bleed, with the wordmark set over it.
        *
-       * Everything after it is a sunset seen from inside a building — warm, low,
-       * and dark at the edges. A loading screen in the same key reads as the game
-       * already running badly: you cannot tell a deliberately dim frame from one
-       * that has not finished. White cannot be mistaken for anything: it is
-       * unmistakably a page, it makes the wordmark the only thing in the room, and
-       * the cut to golden hour when it goes is the first thing the game does.
+       * This screen used to be white, on the argument that a dim loading frame is
+       * indistinguishable from a game running badly. That holds for an empty
+       * screen and stops holding the moment there is a picture on it — the art is
+       * unmistakably finished, so it cannot be read as a frame that has not
+       * arrived, and it does the one job the white screen could not: it says who
+       * the game is about before the game has loaded a single one of them.
+       *
+       * It still cuts to golden hour when it goes, because the art is lit in the
+       * same key as the room behind it.
        */
       #boot {
         position: fixed;
         inset: 0;
-        background: #ffffff;
+        background: #241c15;
         display: flex;
         flex-direction: column;
         align-items: center;
-        justify-content: center;
-        gap: 18px;
+        /* Low, not centred. The middle of this art is the cast and the sparks —
+           the busiest part of the frame — and type over it is unreadable however
+           much shadow it is given. The floor along the bottom is the one large
+           quiet area, and it is where the scrim is heaviest anyway. */
+        justify-content: flex-end;
+        padding-bottom: clamp(26px, 7vh, 74px);
+        gap: 16px;
         transition: opacity 460ms ease;
       }
       #boot.gone { opacity: 0; }
+      /* Cover, so it fills any window without ever showing a letterbox — the art is
+         wide, and a splash with bars is a splash that did not fit. Centred low so the
+         crop keeps the cast rather than the ceiling when the window is tall. */
+      #boot .art {
+        position: absolute;
+        inset: 0;
+        background: url('/art/key-art.webp') center 42% / cover no-repeat;
+      }
+      /* The type needs a floor to sit on. A wash that is heaviest at the bottom and
+         barely there across the middle keeps the office readable while giving the
+         wordmark its own ground. */
+      #boot .scrim {
+        position: absolute;
+        inset: 0;
+        background:
+          linear-gradient(180deg, rgba(20, 14, 9, 0.34) 0%, rgba(20, 14, 9, 0.06) 30%,
+                          rgba(20, 14, 9, 0.30) 62%, rgba(20, 14, 9, 0.86) 100%);
+      }
+      #boot .lockup {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 18px;
+      }
       /* The same lockup the menu opens with, down to the clamp: two lines, the second one
          amber, and a checkpoint donut standing in for the O of ONE. It is set here by
          hand rather than imported because this markup has to render before a single
@@ -75,14 +110,15 @@
         letter-spacing: -0.022em;
         text-transform: uppercase;
         text-align: center;
-        color: #241c15;
+        color: #f6efe2;
+        text-shadow: 0 2px 18px rgba(12, 8, 4, 0.62), 0 1px 3px rgba(12, 8, 4, 0.5);
       }
       #boot .mark span { display: block; white-space: nowrap; }
       #boot .mark .one {
-        /* A shade deeper than the interface's amber. The same #f2a02b that carries
-           a dark screen sits at about 2.2:1 on white, which is a colour rather than
-           a word; this is the same hue with enough of it left to read as type. */
-        color: #d98416;
+        /* Back to the interface's own amber. #d98416 existed only to survive a white
+           background; over the art there is nothing to survive, and the darker hue
+           read as brown against a sunset. */
+        color: #f2a02b;
         display: flex;
         align-items: baseline;
         justify-content: center;
@@ -97,30 +133,35 @@
       #boot .rule {
         width: clamp(180px, 22vw, 300px);
         height: 1px;
-        background: rgba(36, 28, 21, 0.16);
+        background: rgba(246, 239, 226, 0.30);
       }
       #boot .note {
         font-family: 'Bricolage Grotesque', 'Helvetica Neue', Helvetica, sans-serif;
         font-weight: 600;
         font-variation-settings: 'opsz' 14;
         font-size: 13px;
-        color: rgba(36, 28, 21, 0.5);
+        color: rgba(246, 239, 226, 0.72);
+        text-shadow: 0 1px 10px rgba(12, 8, 4, 0.6);
       }
     </style>
   </head>
   <body>
     <canvas id="stage"></canvas>
     <div id="boot">
-      <div class="mark">
-        <span>Chair Force</span>
-        <span class="one">
-          <svg class="donut" viewBox="0 0 100 100" aria-hidden="true">
-            <circle cx="50" cy="50" r="33" fill="none" stroke="#ee3e7b" stroke-width="26" />
-          </svg>NE
-        </span>
+      <div class="art"></div>
+      <div class="scrim"></div>
+      <div class="lockup">
+        <div class="mark">
+          <span>Chair Force</span>
+          <span class="one">
+            <svg class="donut" viewBox="0 0 100 100" aria-hidden="true">
+              <circle cx="50" cy="50" r="33" fill="none" stroke="#ee3e7b" stroke-width="26" />
+            </svg>NE
+          </span>
+        </div>
+        <div class="rule"></div>
+        <div class="note">Setting up the office</div>
       </div>
-      <div class="rule"></div>
-      <div class="note">Setting up the office</div>
     </div>
     <script type="module" src="/src/skins/clay/main.ts"></script>
   </body>
