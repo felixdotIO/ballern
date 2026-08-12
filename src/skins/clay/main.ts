@@ -1357,15 +1357,32 @@ function showcase(dt: number, snap: boolean): void {
 
 // ---------------------------------------------------------------------------
 
-let cssWidth = canvas.clientWidth || 1280;
-let cssHeight = canvas.clientHeight || 720;
+/**
+ * The canvas's real box, measured rather than guessed.
+ *
+ * `clientWidth` is an integer and it is *zero* before the element has been laid
+ * out — which, on a page that opens behind a full-screen title card, is exactly
+ * when this module first runs. The fallback was 1280×720, so on any window that
+ * is not that size the opening frames were composed into a buffer of the wrong
+ * shape and stretched to fit: a soft, slightly wrong-aspect picture that snapped
+ * sharp a few frames later when the real box finally reported. That is the
+ * "blurry, then sharper" on the character select.
+ *
+ * `getBoundingClientRect` gives sub-pixel numbers and, more to the point, gives
+ * them correctly the moment the element has a box at all.
+ */
+function box(): [number, number] {
+  const r = canvas.getBoundingClientRect();
+  return [Math.round(r.width) || canvas.clientWidth || innerWidth, Math.round(r.height) || canvas.clientHeight || innerHeight];
+}
+
+let [cssWidth, cssHeight] = box();
 let ratio = Math.min(devicePixelRatio, 2);
 
 const post = createClayPost(renderer, scene, camera, cssWidth, cssHeight, ratio);
 
 function applySize(force = false): void {
-  const w = canvas.clientWidth || cssWidth;
-  const h = canvas.clientHeight || cssHeight;
+  const [w, h] = box();
   if (!force && w === cssWidth && h === cssHeight) return;
   cssWidth = w;
   cssHeight = h;
@@ -1558,6 +1575,16 @@ if (boot) {
     if (handed) return;
     handed = true;
     boot.remove();
+    /*
+     * Re-size on the frame the card comes off, before anybody sees the room.
+     *
+     * The card is a full-screen element and removing it is a layout change, so
+     * the canvas's box can be settling right up to this moment. Everything up to
+     * here was composed behind something opaque; this is the first frame that is
+     * actually looked at, and it is the one that has to be right rather than the
+     * one after it.
+     */
+    applySize(true);
     staging = false;
     menu.show();
   };
@@ -1607,7 +1634,6 @@ function frame(): void {
   applySize(settling > 0);
   if (settling > 0) settling--;
   const dt = Math.min(clock.getDelta(), 0.05);
-  quality.sample(dt);
 
   /*
    * Whether the world is on the character select — which is not the same question as
@@ -1654,6 +1680,22 @@ function frame(): void {
     // heading the solver believes it is on. The next step writes the body's own yaw
     // back over it, but the camera is snapped *this* frame — so put it back first, or
     // the lap opens on a shot aimed five degrees wide of the hall.
+    /*
+     * The resolution controller only watches the *race*.
+     *
+     * It used to sample every frame, including the whole of the character select
+     * — which is a different program: no simulation, no field, one still figure,
+     * and the full post chain over it. Judging the buffer on that and then
+     * carrying the verdict into the race is measuring the wrong thing, and it is
+     * why the opening looked soft and then sharpened. The first frames of a
+     * session are also its most expensive — shaders compiling, targets
+     * allocating — so the menu is precisely where the numbers lie most.
+     *
+     * So the ladder now opens at the top, holds there for the portrait, and only
+     * starts forming an opinion once there is a lap to form it about.
+     */
+    quality.sample(dt);
+
     if (orbiting) {
       chair.object.rotation.y = showYaw;
       updateCamera(0, true);

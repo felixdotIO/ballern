@@ -78,10 +78,23 @@ const LADDER = [1.0, 1.25, 1.5, 1.75, 2.0] as const;
 
 export function createQuality({ min = 1.25, max = 2, target = 1000 / 60, apply }: Options): Quality {
   const rungs = LADDER.filter((r) => r >= min && r <= max);
-  // Start one rung below the ceiling. Opening at the top means the first
-  // second of every session is the slowest, which is also the second the player
-  // is forming an opinion.
-  let index = Math.max(0, rungs.length - 2);
+  /*
+   * Start at the top and step down if the machine cannot hold it.
+   *
+   * This opened one rung below the ceiling, on the argument that the first second
+   * of a session should not be its slowest — which is true, and is the wrong
+   * trade, because of what the first second actually *is*. It is the character
+   * select: a held still of one figure, with no simulation running behind it and
+   * nothing moving but a slow swivel. There is no frame rate to protect there,
+   * and starting a rung down means the portrait is rendered at 77% of the
+   * screen's linear resolution and then visibly sharpens a second later when the
+   * controller has seen enough frames to climb.
+   *
+   * A still image that resolves in front of you looks like a page still loading.
+   * Being briefly slow during a menu costs nothing; looking unfinished costs the
+   * first impression, which is the thing the old comment was trying to protect.
+   */
+  let index = rungs.length - 1;
 
   const history = new Float32Array(WINDOW);
   history.fill(target);
