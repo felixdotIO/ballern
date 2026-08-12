@@ -96,16 +96,16 @@
         align-items: center;
         gap: 18px;
       }
-      /* The wordmark is artwork now, not type — an inflatable one that no font
-         could stand in for, so there is nothing here to keep in step with the
-         menu beyond the file itself. Sized against the viewport's short edge so
-         it holds the same share of the frame in any window. */
+      /* The wordmark is artwork now, not type, so there is nothing here to keep
+         in step with the menu beyond the file itself. It is a wide emblem, so it
+         is sized on width and only capped on height — the other way round and a
+         short window would leave it a stripe. */
       #boot .logo {
-        width: auto;
-        height: clamp(150px, 34vh, 340px);
-        max-width: 82vw;
+        width: min(74vw, 660px);
+        height: auto;
+        max-height: 42vh;
         object-fit: contain;
-        filter: drop-shadow(0 10px 30px rgba(12, 8, 4, 0.55));
+        filter: drop-shadow(0 12px 34px rgba(12, 8, 4, 0.6));
       }
       #boot .rule {
         width: clamp(180px, 22vw, 300px);

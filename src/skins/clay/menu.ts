@@ -202,12 +202,17 @@ const CSS = `
 #menu.on .brand { transform: none; }
 #menu .brand img {
   display: block;
-  width: 100%;
+  /* Hugging, not filling: with width:100% and a height cap, object-fit contain
+     letterboxes the emblem inside a box wider than itself, and the hairline below
+     then measures the box rather than the artwork. */
+  width: auto;
+  max-width: 100%;
   height: auto;
   /* The rail is the width the logo wants in the wide layout. In the narrow one
      the rail *is* the screen, and a logo at 100% of that buries the driver, so
-     the viewport's height gets the final say. */
-  max-height: min(30vh, 250px);
+     the viewport's height gets the final say. A wide emblem needs less of that
+     height than the stacked wordmark it replaced. */
+  max-height: min(24vh, 200px);
   object-fit: contain;
   /* The same cast the type carried, as a shadow the shape can actually take. */
   filter: drop-shadow(0 6px 18px rgba(20, 14, 8, 0.55));
