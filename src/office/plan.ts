@@ -811,16 +811,6 @@ export const RAMPS: readonly Ramp[] = [
   },
 ];
 
-/** Height above `y` of the ramp surface at a point, or undefined if off it. */
-export function rampHeightAt(ramp: Ramp, x: number, z: number): number | undefined {
-  if (x < ramp.x0 || x > ramp.x1) return undefined;
-  if (z < ramp.landingHigh || z > ramp.landingLow) return undefined;
-  if (z <= ramp.zHigh) return LEVELS.floor;
-  if (z >= ramp.zLow) return LEVELS.garage;
-  const t = (z - ramp.zHigh) / (ramp.zLow - ramp.zHigh);
-  return LEVELS.floor + t * (LEVELS.garage - LEVELS.floor);
-}
-
 /**
  * The top deck, poured around the two ramp slots.
  *
@@ -845,11 +835,6 @@ export const DECK_PLATES: readonly { x0: number; z0: number; x1: number; z1: num
   { x0: 0, z0: 33.75, x1: 5.0, z1: 42.5 },
   { x0: 16.25, z0: 33.75, x1: 20.0, z1: 42.5 },
 ];
-
-/** Is there deck slab under this point? False over the two ramp slots. */
-export function onDeck(x: number, z: number): boolean {
-  return DECK_PLATES.some((p) => x >= p.x0 && x <= p.x1 && z >= p.z0 && z <= p.z1);
-}
 
 /**
  * Stair and lift head-house serving the Parkhaus.

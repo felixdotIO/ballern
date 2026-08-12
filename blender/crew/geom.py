@@ -132,18 +132,6 @@ def prism(name, a=1.0, b=1.0, y=(-1.0, 0.0), p=0.45, seg=64, taper=1.0):
     return ob
 
 
-def prism_inside(cutter, pt_world, eps=0.004):
-    """Is a world-space point inside (or on) the prism volume?"""
-    a, b, y0, y1, p, taper = cutter["se"]
-    lp = cutter.matrix_world.inverted() @ pt_world
-    if not (y0 - eps <= lp.y <= y1 + eps):
-        return False
-    f = (y1 - lp.y) / (y1 - y0) if y1 != y0 else 0.0
-    s = taper + (1.0 - taper) * f
-    f = (abs(lp.x) / (a * s + eps)) ** (2 / p) + (abs(lp.z) / (b * s + eps)) ** (2 / p)
-    return f <= 1.0 + 0.03
-
-
 def torus(name, R=1.0, r=0.3, squash=1.0, seg=72, ring=28):
     """Ring around the Z axis. squash flattens the tube vertically."""
     verts, faces, rows = [], [], []
@@ -261,28 +249,6 @@ def set_mats(ob, mats):
     for m in mats:
         ob.data.materials.append(m)
     return ob
-
-
-def tag_faces(ob, predicate, index):
-    """Assign material slot `index` to every polygon whose centre passes."""
-    mw = ob.matrix_world
-    n = 0
-    for p in ob.data.polygons:
-        if predicate(mw @ p.center):
-            p.material_index = index
-            n += 1
-    return n
-
-
-def join(name, parts):
-    """Merge objects into one mesh, preserving material slots."""
-    bpy.ops.object.select_all(action='DESELECT')
-    for p in parts:
-        p.select_set(True)
-    bpy.context.view_layer.objects.active = parts[0]
-    bpy.ops.object.join()
-    parts[0].name = name
-    return parts[0]
 
 
 def link(name, p0, p1, r0, r1, seg=28, cap=6, body=4):

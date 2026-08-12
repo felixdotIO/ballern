@@ -104,8 +104,7 @@ knit character's floppy ears from the very first build, reused on a snout.
 difference between a character you like and one you don't.
 
 Props: `cig` (cigarette in the corner of the mouth), `pet_collar` (band and
-tag), `earring`, `glasses_up` (specs pushed onto the forehead). `lanyard` exists
-but is off for everyone now that the body is uniform. A single prop carries more personality than any amount of proportion
+tag), `earring`, `glasses_up` (specs pushed onto the forehead). A single prop carries more personality than any amount of proportion
 tuning — the cigarette did more for the sales guy than his whole head shape.
 
 The cap peak has to be sized off *itself*, not off the head: at `hy * brim_len`
@@ -157,11 +156,9 @@ any leg dial can break them again:
 The shirt's own bottom is a rounded lip on the same superellipse profile rather
 than a flat n-gon cap, which voxelises far more cleanly.
 
-`collar` picks the garment: `shirt` (band, camp points, placket, buttons),
-`jacket` (lapels swung into a V over an `inner_col` shirt front — the shirt
-underneath is what makes it read as *open*), `hood` (roll, slumped hood,
-drawstrings with tips, kangaroo pocket), or `none`. Six characters sharing one
-garment cut read as a palette swap; three cuts is what stopped that.
+`collar` is `tee` — the whole cast wears one. The `shirt`, `jacket` and `hood`
+builders that came before the uniform body have been removed; they are in the
+git history if a garment is ever wanted again.
 
 ```bash
 blender -b --factory-startup -P blender/roster.py -- --only newone,boss

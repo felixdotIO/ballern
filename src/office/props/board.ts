@@ -15,7 +15,7 @@
 import * as THREE from 'three';
 
 import { BOARD } from '../metrics';
-import { PROP_MAT, framedPanel, part, tube } from './shared';
+import { PROP_MAT, part, tube } from './shared';
 import { jitter, range, type Rng } from '../rng';
 
 const VENEER = new THREE.MeshStandardMaterial({
@@ -255,37 +255,3 @@ export function placeSetting(rng: Rng): THREE.Group {
   return g;
 }
 
-/**
- * Pinnwand: the fabric-faced metaplan wall that every German meeting room has,
- * still carrying the cards from whatever workshop last used it.
- */
-export function pinWall(width: number, height: number, rng: Rng): THREE.Group {
-  const g = new THREE.Group();
-  const holder = new THREE.Group();
-  holder.position.y = height / 2;
-  g.add(holder);
-  const front = framedPanel(holder, PROP_MAT.metal, FELT, width, height, { bar: 0.04, depth: 0.03 });
-
-  const cardColors = [0xd8c98a, 0xc9d8a8, 0xd8a8a8, 0xa8c0d8];
-  const cards = Math.floor(range(rng, 6, 14));
-  for (let i = 0; i < cards; i++) {
-    const w = range(rng, 0.16, 0.24);
-    const card = part(
-      holder,
-      PROP_MAT.paper,
-      [w, w * 0.42, 0.003],
-      [
-        range(rng, -width / 2 + 0.2, width / 2 - 0.2),
-        range(rng, -height / 2 + 0.2, height / 2 - 0.2),
-        front - 0.003,
-      ],
-      0.001,
-    );
-    card.material = new THREE.MeshStandardMaterial({
-      color: new THREE.Color(cardColors[i % cardColors.length]),
-      roughness: 0.85,
-    });
-    card.rotation.z = jitter(rng, 0.09);
-  }
-  return g;
-}

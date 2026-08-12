@@ -73,7 +73,6 @@ class Spec:
     bun: tuple = (0.20, 0.30, 0.72)    # radius / back offset / height
     earring: float = 0.0               # stud radius, 0 for none
     cig: bool = False                  # cigarette in the corner of the mouth
-    lanyard: bool = False              # cord and badge
     brim_len: float = 0.86             # cap peak, x head ry
     glasses: str = 'none'              # 'none' | 'shades' | 'round'
     lens: tuple = (0.185, 0.125)       # half width / half height
@@ -93,7 +92,6 @@ class Spec:
     snout: float = 0.0                 # nose blob radius, 0 for none
     snout_col: tuple = (0.085, 0.070, 0.070)
     pet_collar: float = 0.0            # band radius, 0 for none
-    hood_up: bool = False              # hood pulled over the head
     glasses_up: bool = False           # specs pushed onto the forehead
     smile: float = 0.0                 # lifts the corners of the mouth
     cans: bool = False                 # headphones
@@ -123,12 +121,8 @@ class Spec:
     seat_drop: float = 0.0             # extra slouch into the cushion
 
     # ---- body ------------------------------------------------------ #
-    neck: tuple = (0.175, 0.30)        # radius / length
-    torso: tuple = (0.58, 0.30, 0.90)  # legacy bust mass, unused by the figure
-    shoulder_slope: float = 0.16
     collar: str = 'shirt'              # 'tee' | 'shirt' | 'jacket' | 'hood' | 'none'
     sleeve: float = 0.42               # how far a tee sleeve runs down the arm
-    buttons: int = 3
     gap: float = 0.06                  # neck gap under the jaw
 
     # ---- surface --------------------------------------------------- #
@@ -140,7 +134,6 @@ class Spec:
     iris_col: tuple = (0.150, 0.105, 0.075)   # the iris proper
     limbal: tuple = (0.030, 0.026, 0.024)     # dark ring at its edge
     neck_col: tuple = (0.230, 0.185, 0.160)
-    inner_col: tuple = (0.780, 0.775, 0.760)   # what shows under an open jacket
     legs_col: tuple = (0.150, 0.165, 0.200)
     shoe_col: tuple = (0.105, 0.110, 0.125)
     lid_shade: float = 0.80            # lid tone relative to the socket

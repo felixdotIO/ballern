@@ -34,7 +34,6 @@ def _palette(s):
         'catch': mats.plain(f'{s.name}_catch', (0.95, 0.95, 0.96), rough=0.10, coat=0.9),
         'card': mats.paper(f'{s.name}_card', tuple(c * 0.92 for c in s.mask_col), crease=0.4),
         'legs': mats.cloth(f'{s.name}_legs', s.legs_col, rough=0.85),
-        'inner': mats.cloth(f'{s.name}_inner', s.inner_col, rough=0.88),
         'hat': mats.knit(f'{s.name}_hat', s.hat_col, depth=0.0, rough=0.90),
         'cans': mats.plain(f'{s.name}_cans', s.cans_col, rough=0.40, coat=0.3),
         'hair': mats.hair(f'{s.name}_hair', s.hair_col),
@@ -905,125 +904,9 @@ def _body(s, pal, j):
         g.place(band, loc=(0, 0.02 * H, shoulder_z + 0.075 * H), rot=(-5, 0, 0))
         weld.append(band)
 
-    if s.collar == 'shirt':
-        band = g.torus(f'{s.name}_band', R=nr * 1.28, r=nr * 0.30, squash=1.7,
-                       seg=64, ring=20)
-        g.set_mats(band, [pal['cloth']])
-        g.place(band, loc=(0, 0.02 * H, shoulder_z + 0.06 * H), rot=(-5, 0, 0))
-        parts.append(band)
 
-        # two camp-collar points lying open and flat on the chest
-        for side in (-1, 1):
-            def point(t):
-                return 1.0 - 0.88 * max(0.0, -t) ** 0.62
 
-            flap = g.blob(f'{s.name}_flap{side}',
-                          r=(0.085 * H, 0.015 * H, 0.148 * H),
-                          e=(0.45, 0.50), seg=36, ring=28, profile=point)
-            g.set_mats(flap, [pal['cloth']])
-            g.place(flap, loc=(side * 0.086 * H, -depth * 0.90,
-                               shoulder_z - 0.05 * H),
-                    rot=(8, 0, side * 20))
-            parts.append(flap)
 
-        placket = g.blob(f'{s.name}_placket', r=(0.038 * H, 0.020 * H, 0.42 * H),
-                         e=(0.40, 0.40), seg=24, ring=28)
-        g.set_mats(placket, [pal['cloth']])
-        g.place(placket, loc=(0, -depth * 0.92, shoulder_z - 0.46 * H))
-        parts.append(placket)
-
-        btn = mats.plain(f'{s.name}_btnmat',
-                         tuple(c * 0.80 for c in s.garment_col),
-                         rough=0.32, coat=0.4)
-        for i in range(s.buttons):
-            b = g.blob(f'{s.name}_btn{i}', r=(0.019 * H, 0.009 * H, 0.019 * H),
-                       seg=20, ring=14)
-            g.set_mats(b, [btn])
-            g.place(b, loc=(0, -depth * 0.92 - 0.022 * H,
-                            shoulder_z - (0.22 + i * 0.19) * H))
-            parts.append(b)
-
-    if s.collar == 'jacket':
-        # an open jacket: the shirt underneath is what makes it read as open
-        inner = g.blob(f'{s.name}_inner', r=(0.170 * H, 0.05 * H, 0.40 * H),
-                       e=(0.40, 0.46), seg=32, ring=32,
-                       profile=lambda t: 1.0 - 0.48 * max(0.0, -t) ** 0.8)
-        g.set_mats(inner, [pal['inner']])
-        g.place(inner, loc=(0, -depth * 0.86, shoulder_z - 0.30 * H))
-        parts.append(inner)
-
-        band = g.torus(f'{s.name}_band', R=nr * 1.30, r=nr * 0.26, squash=1.6,
-                       seg=64, ring=20)
-        g.set_mats(band, [pal['cloth']])
-        g.place(band, loc=(0, 0.02 * H, shoulder_z + 0.06 * H), rot=(-5, 0, 0))
-        parts.append(band)
-
-        for side in (-1, 1):
-            lapel = g.blob(f'{s.name}_lapel{side}',
-                           r=(0.155 * H, 0.034 * H, 0.36 * H),
-                           e=(0.42, 0.50), seg=32, ring=32,
-                           profile=lambda t: 1.0 - 0.55 * max(0.0, -t) ** 0.8)
-            g.set_mats(lapel, [pal['cloth']])
-            g.place(lapel, loc=(side * 0.190 * H, -depth * 0.90,
-                                shoulder_z - 0.16 * H),
-                    rot=(6, 0, side * 13))
-            parts.append(lapel)
-
-    if s.collar == 'hood':
-        roll = g.torus(f'{s.name}_hood', R=nr * 1.85, r=nr * 0.62, squash=1.1,
-                       seg=64, ring=24)
-        g.set_mats(roll, [pal['cloth']])
-        g.place(roll, loc=(0, 0.03 * H, shoulder_z + 0.02 * H), rot=(-8, 0, 0))
-        parts.append(roll)
-
-        back = g.blob(f'{s.name}_hoodback', r=(0.34 * H, 0.22 * H, 0.20 * H),
-                      e=(0.68, 0.78), seg=40, ring=26)
-        g.set_mats(back, [pal['cloth']])
-        g.place(back, loc=(0, 0.26 * H, shoulder_z - 0.06 * H), rot=(-16, 0, 0))
-        parts.append(back)
-
-        # drawstrings and a kangaroo pocket: the two details that stop a hoodie
-        # reading as a plain sack
-        cord = mats.plain(f'{s.name}_cord', s.inner_col, rough=0.6)
-        for side in (-1, 1):
-            a = Vector((side * 0.07 * H, -depth * 0.92, shoulder_z - 0.02 * H))
-            b = Vector((side * 0.085 * H, -depth * 1.02, shoulder_z - 0.40 * H))
-            string = g.link(f'{s.name}_cord{side}', a, b, 0.016 * H, 0.014 * H,
-                            seg=14, cap=4)
-            g.set_mats(string, [cord])
-            parts.append(string)
-            tip = g.blob(f'{s.name}_tip{side}', r=(0.022 * H,) * 3, seg=18, ring=12)
-            g.set_mats(tip, [cord])
-            g.place(tip, loc=b)
-            parts.append(tip)
-
-        pocket = g.blob(f'{s.name}_pocket', r=(0.30 * H, 0.045 * H, 0.17 * H),
-                        e=(0.36, 0.42), seg=36, ring=24)
-        g.set_mats(pocket, [pal['cloth']])
-        g.place(pocket, loc=(0, -depth * 0.98, j['waist'] - 0.10 * H))
-        parts.append(pocket)
-
-    if s.lanyard:
-        cord = mats.plain(f'{s.name}_cord2', s.accent, rough=0.7)
-        for side in (-1, 1):
-            a = Vector((side * nr * 0.92, -0.03 * H, shoulder_z + 0.02 * H))
-            b = Vector((side * 0.055 * H, -depth * 0.96, shoulder_z - 0.46 * H))
-            c = g.link(f'{s.name}_lan{side}', a, b, 0.022 * H, 0.020 * H,
-                       seg=12, cap=4)
-            g.set_mats(c, [cord])
-            parts.append(c)
-        badge = g.blob(f'{s.name}_badge', r=(0.115 * H, 0.016 * H, 0.150 * H),
-                       e=(0.26, 0.30), seg=28, ring=20)
-        g.set_mats(badge, [pal['inner']])
-        g.place(badge, loc=(0, -depth * 1.06, shoulder_z - 0.62 * H),
-                rot=(6, 0, -4))
-        parts.append(badge)
-        strip = g.blob(f'{s.name}_badgebar', r=(0.115 * H, 0.010 * H, 0.032 * H),
-                       e=(0.26, 0.30), seg=24, ring=14)
-        g.set_mats(strip, [mats.plain(f'{s.name}_bar', s.accent, rough=0.5)])
-        g.place(strip, loc=(0, -depth * 1.075, shoulder_z - 0.52 * H),
-                rot=(6, 0, -4))
-        parts.append(strip)
 
     if s.pet_collar > 0:
         ring = g.torus(f'{s.name}_petcollar', R=nr * 1.12, r=s.pet_collar,

@@ -106,15 +106,6 @@ export const DOOR = {
   swingClearance: 0.9,
 } as const;
 
-export const CIRCULATION = {
-  /** Primary loop around the core: 2 modules. This is the lap. */
-  primaryWidth: modules(2),
-  /** Secondary run into an open-plan bay: 1 module. */
-  secondaryWidth: modules(1),
-  /** ASR A1.8 minimum clear escape width — nothing may encroach on this. */
-  minClearEgress: 1.2,
-} as const;
-
 export const FACADE = {
   /** Mullion rhythm matches the module, because in a real building it is the
    *  same grid — that is why interior partitions can meet the facade cleanly. */
@@ -423,20 +414,6 @@ export const FITTINGS = {
 } as const;
 
 // ---------------------------------------------------------------------------
-// Player
-// ---------------------------------------------------------------------------
-
-export const PLAYER = {
-  /** Eye height seated on a task chair: seat at ~0.45 plus sitting eye height. */
-  eyeHeight: 1.2,
-  /** Tucked-in racing posture drops the camera and widens the FOV. */
-  eyeHeightCrouched: 0.95,
-  /** Collision capsule. Radius comes from the chair base, not the sitter. */
-  colliderRadius: CHAIR.baseDiameter / 2,
-  colliderHeight: 1.1,
-} as const;
-
-// ---------------------------------------------------------------------------
 // Placement rules consumed by the dressing solver and the validation gates.
 // ---------------------------------------------------------------------------
 
@@ -454,32 +431,3 @@ export const PLACEMENT = {
   settleTolerance: 0.002,
 } as const;
 
-/**
- * Reality does repeat some things, and refusing to repeat them is its own kind
- * of fake. These prop classes are allowed to appear as perfect duplicates.
- * Everything not on this list must vary, and the duplicate gate enforces it.
- */
-export const REPETITION_WHITELIST = new Set([
-  'ceiling.tile',
-  'ceiling.tee',
-  'ceiling.luminaire',
-  'ceiling.diffuser',
-  'ceiling.sprinkler',
-  'ceiling.smokeDetector',
-  'floor.carpetTile',
-  'facade.mullion',
-  'facade.radiator',
-  'wall.socket',
-  'wall.switch',
-  'wall.skirting',
-  'furniture.stackingChair',
-  'furniture.locker',
-  // A rack row is identical by design — that is what a standard is for — and a
-  // deliberately varied one would read as a junk shop rather than a data room.
-  'server.rack',
-  'server.floorTile',
-  'kitchen.wallUnit',
-  'deck.bayLine',
-  'deck.wheelStop',
-  'hall.stoneTile',
-]);
