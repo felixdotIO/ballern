@@ -8,7 +8,7 @@ import os
 from PIL import Image, ImageDraw, ImageFont
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-NAMES = [('newone', 'The new one'), ('facilities', 'Facilities'),
+NAMES = [('newone', 'The new one'), ('facilities', 'Facility Manager'),
          ('dog', 'The office dog'), ('intern', 'The intern'),
          ('boss', 'The boss'), ('sales', 'The sales guy'),
          ('designer', 'The designer')]

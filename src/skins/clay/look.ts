@@ -29,9 +29,43 @@
  *     marks selection and the best lap and nothing else. Pink — the checkpoint
  *     donuts, the one saturated thing in the building — is reserved for energy: the
  *     drift charge and the boost. Two accents, two meanings, no decoration.
+ *
  *  4. **Space instead of edges.** Where the last pass reached for a 3 px keyline and
  *     a hard drop shadow, this one reaches for 24 px of air and a size jump. Rules
  *     are 1 px and rare.
+ *
+ * With one register on top of it, and the logo is why.
+ *
+ * The emblem is the loudest thing the game owns, and a title screen whose logo looks
+ * pasted on is a title screen with two designers. So the **front end** — the splash
+ * and the menu, the two screens that are box art rather than game — is set in the
+ * emblem's own terms, whatever those happen to be this month.
+ *
+ * They have changed once already, and the change is worth recording because it is
+ * what these tokens are for. The first emblem was a chrome one: bevelled pink caps
+ * extruded over a star, a checkered tail, amber sparks. The screen was built out of
+ * exactly that — a gradient bar with a highlight along its top edge, a checker band
+ * where the hairline had been, hot pink on everything that pointed. Then the emblem
+ * was redrawn, and the new one shares almost nothing with it: **flat, two colours,
+ * no bevel and no gradient anywhere in it** — black caps knocked out of a vermilion
+ * flame, with tapered speed slashes trailing off the words and a task chair standing
+ * in for the A of CHAIR. Vinyl, not chrome.
+ *
+ * Which means the interface's job is not to keep the old furniture in a new colour.
+ * A gradient bar with a bevel under a logo that has no bevel is the same mismatch as
+ * before, wearing the right paint. So:
+ *
+ *   `--hot`      the flame. The one brand colour, and it is flat.
+ *   `--hot-deep` what it does when pressed. A shade, not an extrusion.
+ *   `--hot-lift` what it does on hover. A tint, not a highlight.
+ *   `--lean`     the eleven degrees the caps are cut at, on every display element.
+ *   the slashes  three tapered streaks, standing where the checker stood.
+ *
+ * Amber is not displaced by this, and the two are further apart than "both orange"
+ * suggests: `--amber` is the honey of the sun through the west glazing, `--hot` is a
+ * red vermilion, and they never appear in the same register — amber is the only
+ * thing that points inside a race, and the flame stops at the moment the countdown
+ * starts. The HUD, the plan and the result are the room, and stay quiet.
  *
  * The palette is the room's: paper is the light on the carpet, ink is the ceiling in
  * shadow. Nothing here is neutral grey, because a grey over a golden-hour scene
@@ -65,6 +99,23 @@ const CSS = `
   --amber: #f2a02b;
   /* The checkpoint donuts: energy, and nothing else. */
   --pink: #ee3e7b;
+
+  /*
+   * The emblem, as one colour and an angle.
+   *
+   * Sampled off the artwork rather than chosen next to it, which is the only way a
+   * screen and the logo on it end up the same orange: the flame is #ee5221 and the
+   * letters are pure black, and that is the entire palette of the thing. The other
+   * two are a shade and a tint of the one colour — for a pressed button and a
+   * hovered one — rather than the light and dark faces of an extrusion, because
+   * nothing in this emblem is extruded. Front end only; see the note at the top.
+   */
+  --hot: #ee5221;
+  --hot-lift: #ff6d3c;
+  --hot-deep: #c23c12;
+  /* The lean. Every display element in the front end carries it, and nothing in the
+     race does — the emblem is moving, a lap time is not. */
+  --lean: -11deg;
   /* Signal green, for the one thing that is genuinely a fire plan. */
   --green: #2f8f5b;
 

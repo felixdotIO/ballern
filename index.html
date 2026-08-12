@@ -60,7 +60,20 @@
         background: #241c15;
         display: flex;
         flex-direction: column;
-        align-items: center;
+        /*
+         * Ranged left, not centred.
+         *
+         * Two reasons, and the second is the one that matters. The first is the art:
+         * the cast races out of the middle-right of the frame and the dog's head is
+         * almost exactly where a centred emblem lands, so centring it means covering
+         * the one character everybody looks at first. The second is that the menu this
+         * screen hands over to has its wordmark hard against the left margin — so a
+         * centred splash logo travels across the screen at the wipe, which is the only
+         * moment in the game where the same object is on screen twice in two places.
+         * Left on both, and the emblem simply stays where it is.
+         */
+        align-items: flex-start;
+        padding-left: clamp(24px, 7vw, 96px);
         /* Low, not centred. The middle of this art is the cast and the sparks —
            the busiest part of the frame — and type over it is unreadable however
            much shadow it is given. The floor along the bottom is the one large
@@ -86,37 +99,90 @@
         position: absolute;
         inset: 0;
         background:
+          linear-gradient(90deg, rgba(20, 14, 9, 0.5) 0%, rgba(20, 14, 9, 0.18) 34%,
+                          rgba(20, 14, 9, 0) 58%),
           linear-gradient(180deg, rgba(20, 14, 9, 0.34) 0%, rgba(20, 14, 9, 0.06) 30%,
                           rgba(20, 14, 9, 0.30) 62%, rgba(20, 14, 9, 0.86) 100%);
+      }
+      /*
+       * And a glow under the emblem, in the emblem's own vermilion with the room's
+       * amber around it.
+       *
+       * The art is a busy frame and the logo lands in the busiest part of it — a dog,
+       * a chair and a shower of sparks directly behind the word FORCE. A drop shadow
+       * gives the artwork an edge but not a ground, so the lockup still reads as a
+       * sticker. This is the ground: light of the kind the emblem would throw if it
+       * were in the room, which separates it from the cast without dimming them, and
+       * which is the same pair of colours the menu's burst is made of.
+       */
+      #boot .glow {
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(30% 26% at 30% 66%, rgba(238, 82, 33, 0.32), transparent 72%),
+          radial-gradient(44% 36% at 28% 68%, rgba(242, 160, 43, 0.16), transparent 74%);
       }
       #boot .lockup {
         position: relative;
         display: flex;
         flex-direction: column;
-        align-items: center;
+        align-items: flex-start;
         gap: 18px;
       }
-      /* The wordmark is artwork now, not type, so there is nothing here to keep
-         in step with the menu beyond the file itself. It is a wide emblem, so it
-         is sized on width and only capped on height — the other way round and a
-         short window would leave it a stripe. */
+      /* The wordmark is artwork, not type, so nothing here has to track the menu's
+         type scale — but everything under it does track the menu's furniture, which
+         is the flag, the lean and the glow: the same three things, because this is
+         the same screen twice. It is a wide emblem, so it is sized on width and only
+         capped on height — the other way round and a short window would leave it a
+         stripe. */
       #boot .logo {
-        width: min(74vw, 660px);
+        width: min(58vw, 560px);
         height: auto;
         max-height: 42vh;
         object-fit: contain;
         filter: drop-shadow(0 12px 34px rgba(12, 8, 4, 0.6));
       }
-      #boot .rule {
-        width: clamp(180px, 22vw, 300px);
-        height: 1px;
-        background: rgba(246, 239, 226, 0.30);
+      /*
+       * The slashes, which are what the hairline under the wordmark became — the same
+       * change the menu's rail made, and made here for the same reason: the emblem
+       * has a run of tapered streaks trailing off its words, so the one piece of
+       * furniture under it should be those rather than a generic rule. It was a
+       * chequered flag for one release, which was the right answer to the emblem
+       * before this one; there is not a single square in the new artwork.
+       *
+       * Short, and shorter than it wants to be, because this is the one screen where
+       * a horizontal band sitting directly above a status line has an obvious second
+       * reading — and a progress bar that never fills is a worse thing to put on a
+       * loading screen than no bar at all.
+       */
+      #boot .flag {
+        width: clamp(104px, 12vw, 160px);
+        height: 15px;
+        background-image:
+          linear-gradient(90deg, #ee5221 0%, rgba(238, 82, 33, 0) 100%),
+          linear-gradient(90deg, #ee5221 0%, rgba(238, 82, 33, 0) 100%),
+          linear-gradient(90deg, #ee5221 0%, rgba(238, 82, 33, 0) 100%);
+        background-size: 100% 3px, 64% 3px, 38% 3px;
+        background-position: 0 0, 0 6px, 0 12px;
+        background-repeat: no-repeat;
+        transform: skewX(-11deg);
+        filter: drop-shadow(0 2px 6px rgba(12, 8, 4, 0.8));
       }
+      /* Set the way the menu's captions are: caps, tracked wide, leaning the emblem's
+         eleven degrees. A loading note is the smallest type on the screen and the last
+         thing anyone reads, which makes it the cheapest place to say the screen and the
+         logo were drawn by the same hand. */
       #boot .note {
         font-family: 'Bricolage Grotesque', 'Helvetica Neue', Helvetica, sans-serif;
-        font-weight: 600;
+        font-weight: 700;
         font-variation-settings: 'opsz' 14;
-        font-size: 13px;
+        font-size: 11.5px;
+        letter-spacing: 0.2em;
+        /* Tracking is added after every letter including the last, so a centred line
+           sits half a space left of centre. Paid back at the front. */
+        text-indent: 0.2em;
+        text-transform: uppercase;
+        transform: skewX(-11deg);
         color: rgba(246, 239, 226, 0.72);
         text-shadow: 0 1px 10px rgba(12, 8, 4, 0.6);
       }
@@ -127,9 +193,10 @@
     <div id="boot">
       <div class="art"></div>
       <div class="scrim"></div>
+      <div class="glow"></div>
       <div class="lockup">
         <img class="logo" src="/art/logo.webp" alt="Chair Force One" />
-        <div class="rule"></div>
+        <div class="flag"></div>
         <div class="note">Setting up the office</div>
       </div>
     </div>

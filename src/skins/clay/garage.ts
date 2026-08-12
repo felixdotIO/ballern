@@ -30,6 +30,7 @@
 import * as THREE from 'three';
 
 import { bevelBox } from '../../render/geometry';
+import type { DriverCharacter } from '../../game/rivals';
 import type { DriverKey } from '../../render/kit';
 
 /**
@@ -67,6 +68,24 @@ export type Rider = {
    * pace with him rather than inherit whatever grid slot he lands in.
    */
   pace: number;
+  /**
+   * And how they drive it, as four numbers — see `rivals.ts` for what each one
+   * does to the car.
+   *
+   * These are here for the same reason `pace` is, and they matter more than it
+   * does. A field separated only by top speed is a field of one driver at four
+   * volumes: everybody takes the same corner at the same speed on the same line
+   * and the whole race is a queue in pace order, which is what this one was. What
+   * makes an opponent read as a person is that they are *good at different things*
+   * — the sales guy is quick and will put it down the inside of you at a doorway
+   * he cannot possibly make; the designer is slower and will never once be untidy;
+   * the boss brakes far too early and then refuses to let you past.
+   *
+   * So none of these is a difficulty knob. Every one of them is a way to be fast
+   * and a way to be slow at the same time, which is the only kind of character a
+   * racing opponent can have.
+   */
+  drive: DriverCharacter;
 };
 
 export type Ride = {
@@ -123,13 +142,28 @@ const clay = (color: number, roughness = 0.9) =>
  * is not thinking about it.
  */
 export const RIDERS: readonly Rider[] = [
-  { key: 'facilities', label: 'Facilities', pace: 5.95 },
-  { key: 'sales', label: 'The sales guy', pace: 5.85 },
-  { key: 'designer', label: 'The designer', pace: 5.7 },
-  { key: 'boss', label: 'The boss', pace: 5.45 },
-  { key: 'dog', label: 'The office dog', pace: 5.35 },
-  { key: 'newone', label: 'The new one', pace: 5.25 },
-  { key: 'intern', label: 'The intern', pace: 5.6 },
+  // Eleven years on this floor. Quick because he knows where everything is, not
+  // because he is trying: the highest nerve on the roster, a tidy line, and no
+  // interest whatever in a fight he can win at the next doorway anyway.
+  { key: 'facilities', label: 'Facility Manager', pace: 5.95, drive: { nerve: 1.12, bold: 0.45, flow: 0.85, steady: 0.9 } },
+  // Fast and completely unbothered. Will take a gap that is not there, and does
+  // not hold a line so much as approximately remember one.
+  { key: 'sales', label: 'The sales guy', pace: 5.85, drive: { nerve: 1.06, bold: 0.95, flow: 0.35, steady: 0.45 } },
+  // The best line on the floor, driven slightly too slowly, and never once a
+  // move on anybody. Ends up third having looked like winning.
+  { key: 'designer', label: 'The designer', pace: 5.7, drive: { nerve: 0.98, bold: 0.25, flow: 0.98, steady: 0.85 } },
+  // Brakes for corners that are not corners and then will not be passed. The
+  // slowest fast driver in the building.
+  { key: 'boss', label: 'The boss', pace: 5.45, drive: { nerve: 0.88, bold: 0.8, flow: 0.4, steady: 0.75 } },
+  // No plan at any point. Quick in a straight line, catastrophic everywhere else,
+  // and entirely capable of leading a lap.
+  { key: 'dog', label: 'The office dog', pace: 5.35, drive: { nerve: 1.05, bold: 0.9, flow: 0.12, steady: 0.2 } },
+  // Started on Monday. Careful, off the pace, and the only one who has not hit
+  // anything.
+  { key: 'newone', label: 'The new one', pace: 5.25, drive: { nerve: 0.92, bold: 0.2, flow: 0.8, steady: 0.95 } },
+  // Trying very hard, which is both why she is quicker than she looks and why the
+  // third lap is not the first one.
+  { key: 'intern', label: 'The intern', pace: 5.6, drive: { nerve: 1.02, bold: 0.6, flow: 0.6, steady: 0.4 } },
 ];
 
 // ---------------------------------------------------------------------------
@@ -291,7 +325,15 @@ export const RIDES: readonly Ride[] = [
 ];
 
 
-const BUILDERS: readonly (undefined | (() => THREE.Object3D))[] = [
+/**
+ * How each ride is made, or `undefined` for the one that is the stock kit chair.
+ *
+ * Exported because the character select now shows a picture of every ride at once,
+ * and the pictures are rendered from the rides themselves — see `portraits.ts`. A
+ * picker that draws its own idea of what a stool looks like is a picker that is
+ * wrong the first time somebody changes the stool.
+ */
+export const RIDE_BUILDERS: readonly (undefined | (() => THREE.Object3D))[] = [
   undefined,
   gymBall,
   stool,
@@ -401,7 +443,7 @@ export function createGarage(
       built = null;
     }
 
-    const build = BUILDERS[ride];
+    const build = RIDE_BUILDERS[ride];
     for (const child of stock) child.visible = build === undefined;
 
     if (build) {

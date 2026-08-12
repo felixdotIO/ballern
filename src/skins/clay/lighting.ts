@@ -71,7 +71,7 @@ export type ClayLighting = {
  * contrast on the subject, more light in the room behind, and enough rim to hold
  * a pale head off a pale window.
  */
-const RACE = { key: 1.7, rim: 1.35, fittings: 0.09, bounce: 0.18, lamp: 0, env: 0.45 } as const;
+const RACE = { key: 1.7, rim: 1.35, fittings: 0.09, bounce: 0.18, lamp: 0, kick: 0, env: 0.45 } as const;
 /*
  * The menu's balance, tuned against the screen rather than reasoned about.
  *
@@ -95,7 +95,65 @@ const RACE = { key: 1.7, rim: 1.35, fittings: 0.09, bounce: 0.18, lamp: 0, env: 
  * lift on every surface in the building, and dropping it to 17% for the menu did more
  * for the shirt than three passes of tuning the lamp.
  */
-const SHOW = { key: 1.15, rim: 1.5, fittings: 0.07, bounce: 0.16, lamp: 24, env: 0.17 } as const;
+/*
+ * ---- and the kicker, which is the newest number here ---------------------
+ *
+ * The rig above is a good portrait rig and it was still losing the subject, for a
+ * reason no amount of tuning inside it could fix: **the rim is cold and so is the
+ * background**. A cold edge is the right call on the grid, where the glazing behind
+ * the chair is a hot white wall and blue reads against it — but the character select
+ * stands the figure against dusk glass and a teal mullion grid, and a #9ccfff edge
+ * laid along a pale head in front of that is a light that agrees with everything it
+ * is supposed to be separating the subject from. Value contrast alone cannot save
+ * it either: the cast is cream, the shirt is white, the carpet is tan, and every one
+ * of them sits in the same third of the range.
+ *
+ * So the menu gets one more source, and it separates by *hue*: a vermilion kicker,
+ * low and behind, running up the far shoulder and the back of the chair. It is the
+ * emblem's own colour — the same `--hot` the rail and the start bar are drawn in — so
+ * the one thing the shot needed on photographic grounds is also the thing that ties
+ * the model to the logo above it. Warm key, cold rim, hot kicker: three colours of
+ * light on a figure that was previously lit in two, which is the whole difference
+ * between a product shot and a hero shot.
+ *
+ * It was pink until the emblem was redrawn, and the swap to the emblem's orange is
+ * not the downgrade it sounds like. The argument for the pink was that it separated
+ * by hue from a warm key *and* from teal glazing; vermilion gives up the first half
+ * of that and keeps the second, which is the half that matters — the background
+ * behind the driver is the east glazing, and orange is the complement of that blue
+ * rather than a neighbour of it. What it costs is that the kicker and the key are now
+ * the same family, so the kicker has to stay the more saturated of the two by a
+ * distance, which is why it is a spot at 30 candela rather than a lift on the rim.
+ *
+ * It is a spot rather than a directional on purpose. A directional pink would paint
+ * the entire hall behind him pink and the separation would go straight back out; a
+ * spot at 2.2 m falls off inside the subject's own depth, so the shoulders take it
+ * and the room does not.
+ */
+/*
+ * ---- and the levels, which were a stop and a half too hot ----------------
+ *
+ * Everything above is about *ratio* — which light comes from where, and how much
+ * darker the shadow side is than the lit one — and every one of those ratios was
+ * right while the picture was still wrong, because a ratio says nothing about level.
+ * Four sources were arriving on a near-white t-shirt at once (a key, a rim, a spot
+ * 2.6 m off the chest and the room's own fill) and the shirt is the largest surface
+ * in the frame and the palest thing in the game. It clipped: not "bright", *clipped*,
+ * a flat white silhouette with the modelling burnt off it and a face to match.
+ *
+ * The rule that fixes it is the one every portrait obeys — **expose for the highlight,
+ * not for the subject.** The brightest material on the cast decides the level, and
+ * everything else is allowed to fall wherever that leaves it. So the key comes down by
+ * a third, the spot by half, and the cold rim with them; the room's fill and the sky
+ * follow, because the whole point of lowering a key is lost if an ambient fills the
+ * shade back in.
+ *
+ * The kicker is the one number that does *not* come down, and that is deliberate. At
+ * these levels it is now the strongest single thing on the figure's far edge rather
+ * than a tint lost under a blown highlight — which is what a kicker is for, and it is
+ * where the shot's colour comes from.
+ */
+const SHOW = { key: 0.72, rim: 1.05, fittings: 0.06, bounce: 0.13, lamp: 15, kick: 30, env: 0.14 } as const;
 
 export function createClayLighting(scene: THREE.Scene): ClayLighting {
   // The sky lift belongs to the balance, not to the scene setup: it is the single
@@ -186,6 +244,24 @@ export function createClayLighting(scene: THREE.Scene): ClayLighting {
   scene.add(lamp);
   scene.add(lamp.target);
 
+  /**
+   * The kicker. Hot pink, low, behind — see the note on `SHOW`.
+   *
+   * Tighter than the lamp (34° against 71°) and harder-edged: a kicker is a stripe
+   * down an edge, and one soft enough to wrap round onto the chest is not a kicker,
+   * it is a pink figure. Range 8 m and a physical falloff, so what it really lights
+   * is the shoulder, the hat brim, the seat back and about a metre of carpet behind
+   * the castors — which is exactly the halo the shot was missing.
+   *
+   * Zero intensity until the menu asks for it, and in the scene from the first frame
+   * for the same reason the lamp is: adding a light recompiles every material in the
+   * building, and the frame the player opens the menu on is the worst one to spend
+   * a quarter of a second on.
+   */
+  const kick = new THREE.SpotLight(0xff5a28, RACE.kick, 8, 0.3, 0.55, 1.6);
+  scene.add(kick);
+  scene.add(kick.target);
+
   /** Where the lens is, in plan, as an angle about the subject. */
   const eye = new THREE.Vector3();
 
@@ -196,6 +272,7 @@ export function createClayLighting(scene: THREE.Scene): ClayLighting {
       fittings.intensity = RACE.fittings * LUX;
       bounce.intensity = RACE.bounce * LUX;
       lamp.intensity = RACE.lamp;
+      kick.intensity = RACE.kick;
       scene.environmentIntensity = RACE.env;
 
       key.target.position.copy(focus);
@@ -213,6 +290,7 @@ export function createClayLighting(scene: THREE.Scene): ClayLighting {
       fittings.intensity = SHOW.fittings * LUX;
       bounce.intensity = SHOW.bounce * LUX;
       lamp.intensity = SHOW.lamp;
+      kick.intensity = SHOW.kick;
       scene.environmentIntensity = SHOW.env;
 
       camera.getWorldPosition(eye);
@@ -220,10 +298,20 @@ export function createClayLighting(scene: THREE.Scene): ClayLighting {
       // this, so the rig holds its shape however far the turntable has come round.
       const view = Math.atan2(eye.x - focus.x, eye.z - focus.z);
 
-      // Key: 40° off the lens and steep enough to put the shadow of the head on
-      // the shoulder rather than on the wall behind. Camera-left, which is the
-      // side the hall's own sun is on, so the two agree instead of crossing.
-      const kx = view + 0.7;
+      /*
+       * Key: 54° off the lens and steep enough to put the shadow of the head on the
+       * shoulder rather than on the wall behind. Camera-left, which is the side the
+       * hall's own sun is on, so the two agree instead of crossing.
+       *
+       * It was 40°, and the extra fourteen are for the t-shirt. Every one of the cast
+       * wears the same white tee and it is the largest single area of the subject —
+       * so if it has no shading it is a white cut-out with a head on top, which is
+       * what the shot had. A key at 40° lights the whole of a chest at nearly the same
+       * strength; at 54° the far half of it falls away and the torso reads as a
+       * cylinder. The face is what limits this: much past here and the key crosses
+       * the hat brim, and the eyes go first.
+       */
+      const kx = view + 0.95;
       key.target.position.copy(focus);
       key.position.set(focus.x + Math.sin(kx) * 9, focus.y + 7, focus.z + Math.cos(kx) * 9);
       key.target.updateMatrixWorld();
@@ -250,11 +338,30 @@ export function createClayLighting(scene: THREE.Scene): ClayLighting {
       lamp.position.set(focus.x + Math.sin(lx) * 2.6, focus.y + 2.1, focus.z + Math.cos(lx) * 2.6);
       lamp.target.position.set(focus.x, focus.y + 0.95, focus.z);
       lamp.target.updateMatrixWorld();
+
+      /*
+       * And the kicker, behind the subject on the side the key is not.
+       *
+       * That is the whole placement rule and it is worth being exact about, because
+       * the first cut put it 35° the *other* way — behind, but on the key's side — and
+       * a warm key and a hot kicker arriving on the same shoulder do not make an edge,
+       * they make one over-lit shoulder and an unlit one. Opposite: the key models the
+       * camera-left of the figure, the flame draws the camera-right off the room.
+       *
+       * 1.5 m up rather than the lamp's 2.1. A kicker aimed down at a seated figure
+       * lights the top of a hat; the edge worth having on this cast runs along the
+       * shoulder and up the side of the head, so it comes in nearly level with it.
+       */
+      const cx = view + Math.PI - 0.85;
+      kick.position.set(focus.x + Math.sin(cx) * 2.2, focus.y + 1.5, focus.z + Math.cos(cx) * 2.2);
+      kick.target.position.set(focus.x, focus.y + 0.9, focus.z);
+      kick.target.updateMatrixWorld();
     },
     dispose() {
       key.dispose();
       rim.dispose();
       lamp.dispose();
+      kick.dispose();
       fittings.dispose();
       bounce.dispose();
     },

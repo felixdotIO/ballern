@@ -549,7 +549,7 @@ function stairHouse(sink: Sink, out: CollisionVolume[]): void {
  * barely registers, and that is exactly the right amount: it says the building
  * is on a timer, which says somebody runs it, which is the whole trick.
  */
-function lighting(sink: Sink, group: THREE.Group): void {
+function lighting(sink: Sink, group: THREE.Group, collision: CollisionVolume[]): void {
   // On the bay-row boundaries and along the balustrades, never in an aisle: a
   // mast in a drive lane would be flattened inside a week, which is why no car
   // park has one there. The pair standing against the slots do a second job the
@@ -560,7 +560,13 @@ function lighting(sink: Sink, group: THREE.Group): void {
     [5.6, 27.5],
     [15.9, 11.25],
     [15.9, 28.75],
-    [30.0, 36.4],
+    // Was [30.0, 36.4], which is 140 mm off the centre of the racing line — a mast
+    // standing in the aisle, exactly the thing the paragraph above says never happens.
+    // It survived that long because it had no collider: a lamp post you drive through
+    // is a lamp post nobody reports. Giving the masts collision made it a wall across
+    // the lane, so it moves to the south side of the aisle, 2.6 m off the line and
+    // clear of the notch bays on the other side.
+    [30.0, 33.6],
   ];
 
   const shaft = new THREE.CylinderGeometry(0.055, 0.075, DECK.lampHeight, 10);
@@ -569,6 +575,28 @@ function lighting(sink: Sink, group: THREE.Group): void {
     sink.box(MAT.darkMetal, [0.42, 0.14, 0.26], [x, DECK.lampHeight + 0.07, z]);
     sink.box(MAT.sodiumLamp, [0.34, 0.05, 0.2], [x, DECK.lampHeight - 0.02, z], { cast: false });
     bumperGuard(sink, x, z + 0.28);
+
+    /*
+     * And it is solid, which it was not.
+     *
+     * Four metres of steel on a concrete base, drawn since the deck was built and
+     * collided with by nothing: chairs went through the shaft, through the bumper
+     * guard bolted to its foot, and out the other side. It reads as the worst kind
+     * of bug — the one where the building is a photograph — and it is worth being
+     * clear that this was never an AI problem, however it presents. The computer
+     * drivers simply meet these more often than the player does, because their
+     * racing line runs down the middle of the aisle the masts stand beside.
+     *
+     * One box for the shaft and its guard together rather than two: they are 280 mm
+     * apart, the guard is 140 mm square, and a chair that fits between them is a
+     * chair wedged behind a lamp post for the rest of the lap. 500 mm square from
+     * the deck to head height, which is the thing you can actually hit.
+     */
+    collision.push({
+      label: `deck.mast.${x}.${z}`,
+      size: [0.5, DECK.lampHeight, 0.5],
+      centre: [x, DECK.lampHeight / 2, z + 0.14],
+    });
 
     const lamp = new THREE.PointLight(new THREE.Color(SODIUM.color), SODIUM.intensity, 14, 2);
     lamp.position.set(x, DECK.lampHeight - 0.1, z);
@@ -622,7 +650,7 @@ export function buildDeck(sink: Sink, group: THREE.Group, rooms: readonly Room[]
   }
 
   stairHouse(sink, collision);
-  lighting(sink, group);
+  lighting(sink, group, collision);
 
   // Stains last, as one instanced draw over everything else.
   if (stains.length) {

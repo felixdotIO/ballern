@@ -38,7 +38,7 @@
 import * as THREE from 'three';
 
 import { buildFloorplate } from '../../office/shell';
-import { GATES, LAPS, ROUTE, roomAt } from '../../office/plan';
+import { GATES, LAPS, ROUTE, SHOWROOM, roomAt } from '../../office/plan';
 import { buildDressing } from '../../office/dressing';
 import { buildTrackMarks } from '../../office/trackmarks';
 import { createChair, FLOOR_OFFSET, type Input } from '../../game/chair';
@@ -53,13 +53,15 @@ import { createLightPool } from '../../render/lights';
 import { createDonuts } from './donuts';
 import { createRoutePath } from './routePath';
 import { createRivals, FIELD_SIZE } from '../../game/rivals';
+import { PLAYER_SLOT, progressOnGrid } from '../../game/grid';
 import { createRouteAim } from './routeAim';
 import { createClayLighting } from './lighting';
 import { createClayPost } from './post';
 import { repaintBuilding, repaintObject } from './repaint';
 import { createClayHud } from './hud';
 import { createMenu } from './menu';
-import { createGarage, RIDERS } from './garage';
+import { createGarage, RIDE_BUILDERS, RIDERS, RIDES } from './garage';
+import { shoot } from './portraits';
 import { makeRng, seedFrom } from '../../office/rng';
 
 const canvas = document.getElementById('stage') as HTMLCanvasElement;
@@ -263,13 +265,7 @@ const rivalRigs = Array.from({ length: FIELD_SIZE }, (_, slot) => {
   };
 });
 
-const rivals = createRivals(
-  physics,
-  lapPath,
-  LAPS,
-  lapPath.place(shell.spawn.position[0], shell.spawn.position[2], 0),
-  rivalRigs.map((r) => r.object),
-);
+const rivals = createRivals(physics, lapPath, LAPS, rivalRigs.map((r) => r.object));
 
 /**
  * Put everyone the player did not pick on the grid.
@@ -286,8 +282,25 @@ const rivals = createRivals(
  * on the front row is quick.
  */
 function fieldAgainst(picked: number): void {
-  const others = RIDERS.filter((_, i) => i !== picked).slice(0, FIELD_SIZE);
-  rivals.setDrivers(others.map((r) => ({ label: r.label, pace: r.pace })));
+  /*
+   * The field, slowest at the front.
+   *
+   * The roster is in pace order and the grid used to be filled straight from it,
+   * which quietly guaranteed the dullest possible race: the fastest chair started
+   * first, the slowest started last, and in three laps not one of them ever had a
+   * reason to pass another. Every overtaking behaviour in `rivals.ts` was dead code
+   * on a grid sorted like that.
+   *
+   * Reversed, the race has something in it from the first corner — and it is the
+   * right shape for the player as well, who starts behind all four: the chairs they
+   * reach first are the ones they can actually get past, while the quick ones are
+   * carving their own way up the road ahead in plain sight. That is the difficulty
+   * ramp a five-minute race wants, and it costs one `sort`.
+   */
+  const others = RIDERS.filter((_, i) => i !== picked)
+    .slice(0, FIELD_SIZE)
+    .sort((a, b) => a.pace - b.pace);
+  rivals.setDrivers(others.map((r) => ({ label: r.label, pace: r.pace, drive: r.drive })));
 
   others.forEach((rider, i) => {
     const rig = rivalRigs[i];
@@ -329,10 +342,57 @@ const hud = createClayHud();
  * the wrap resolved by taking the short way round. Driving backwards takes it
  * down again, which is correct: reversing over the line is not a lap.
  */
-let playerS = lapPath.place(shell.spawn.position[0], shell.spawn.position[2], 0);
-let playerProgress = playerS;
+let playerS = 0;
+let playerProgress = 0;
+/*
+ * Whether the chair is still on the starting grid, which is not on the route.
+ *
+ * The grid is 3.5 m of floor behind the line laid on the line's own tangent — see
+ * `grid.ts` — and the route behind the line is the hairpin, a metre and a half
+ * away and at ninety degrees to it. So for the few seconds before the flag, asking
+ * the route where the player is answers with a point on the hairpin and reports
+ * two metres of progress the player has not driven. Measured on the grid instead,
+ * and handed over to the route the moment the line is crossed, which is the one
+ * frame where the two measures agree.
+ */
+let onGrid = true;
+
+/**
+ * The player, in the terms the field races in — see `PlayerOnTrack`.
+ *
+ * The lane is the interesting one: it is the chair's offset from the racing line on
+ * the route's own right-hand normal, which is the exact frame a rival's `lane` is
+ * measured in, so "is the player in my way" is one subtraction rather than a
+ * geometry problem. Recomputed on the frame rather than the step because it feeds a
+ * decision a rival re-takes every second and a half, not every 8 ms.
+ */
+const onTrack = new THREE.Vector3();
+const player = { progress: 0, lane: 0, speed: 0 };
+
+function readPlayer(): void {
+  player.progress = playerProgress;
+  player.speed = chair.speed();
+  lapPath.pointAt(playerS, onTrack);
+  const yaw = lapPath.headingAt(playerS);
+  player.lane =
+    (chair.object.position.x - onTrack.x) * Math.cos(yaw) -
+    (chair.object.position.z - onTrack.z) * Math.sin(yaw);
+}
 
 function trackPlayer(): void {
+  if (onGrid) {
+    const past = progressOnGrid(chair.object.position.x, chair.object.position.z);
+    // Driven distance, on the same scale as the field's: zero on the slot, and the
+    // slot's own depth of it banked by the time the line goes under the castors.
+    playerProgress = PLAYER_SLOT.back + past;
+    if (past < 0) {
+      playerS = 0;
+      return;
+    }
+    onGrid = false;
+    playerS = past % lapPath.total;
+  }
+
   const next = lapPath.nearest(chair.object.position, playerS, 7).s;
   let step = next - playerS;
   if (step > lapPath.total / 2) step -= lapPath.total;
@@ -341,10 +401,34 @@ function trackPlayer(): void {
   playerS = ((next % lapPath.total) + lapPath.total) % lapPath.total;
 }
 
+/**
+ * Move the chair between the two places the front end shows it.
+ *
+ * `true` is the showroom on Ebene 5 — see `SHOWROOM` in plan.ts for why the character
+ * select is a garage scene. `false` is the grid slot it starts a race from.
+ *
+ * A teleport rather than a second scene, and that is the whole trick: there is no
+ * showroom set, no separate lighting rig and no duplicate of the chair. The building
+ * already contains a windowless concrete level nobody was looking at, so the front
+ * end drives the player's chair down there, photographs it, and drives it back up
+ * when they press start. Everything that reads the chair's position — the camera, the
+ * light pool, the depth of field, the swivel — follows it without being told.
+ *
+ * Only from the title screen. Pausing mid-race shows you where you actually are,
+ * because a pause menu that spirits the player off to a basement is a pause menu that
+ * has lost the race.
+ */
+function stage(inShowroom: boolean): void {
+  const to = inShowroom ? SHOWROOM : shell.spawn;
+  chair.place(to.position[0], to.position[2], to.yaw, 0, to.position[1]);
+  chair.sync();
+}
+
 function restart(): void {
   chair.reset();
-  playerS = lapPath.place(shell.spawn.position[0], shell.spawn.position[2], 0);
-  playerProgress = playerS;
+  playerS = 0;
+  playerProgress = 0;
+  onGrid = true;
   rivals.reset();
   for (const r of rivalRigs) r.driver.reset();
   dynamics.reset();
@@ -372,11 +456,54 @@ function restart(): void {
 /** Five drivers and four rides, all of them out of what is already loaded. */
 const garage = createGarage(chair.object, useDriver);
 
+/*
+ * And a picture of every one of them, taken now.
+ *
+ * The character select shows the whole roster at once rather than one name with a
+ * pair of arrows beside it, which means eleven portraits. They are rendered here,
+ * from the same assets the game is about to drive — see the note at the top of
+ * `portraits.ts` for why that beats both drawing them and baking them in Blender.
+ *
+ * Before the menu exists and after the kit has loaded, which is the only window
+ * where it is free: the renderer is warm, nothing is on screen yet, and eleven
+ * 192-pixel renders cost about a frame in total. Doing it lazily when the menu opens
+ * would put that frame exactly where it is most visible.
+ *
+ * The ride models are built for the shot and thrown away — each builder makes its
+ * own geometry and materials, so they are disposed rather than left to accumulate.
+ * The drivers are not: `kitDriver` hands back a clone that shares the asset's
+ * geometry, and disposing that takes the character out of the game with it.
+ */
+const portraits = {
+  riders: RIDERS.map((r) => shoot(renderer, kitDriver(r.key), { head: true })),
+  rides: RIDES.map((_, i) => {
+    const build = RIDE_BUILDERS[i];
+    const object = build ? build() : raceChair().group;
+    const url = shoot(renderer, object, { fill: 0.76, yaw: Math.PI - 0.85 });
+    if (build) {
+      object.traverse((node) => {
+        const mesh = node as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        mesh.geometry.dispose();
+        (mesh.material as THREE.Material).dispose();
+      });
+    }
+    return url;
+  }),
+};
+
 const menu = createMenu({
   state: () => ({ racing: race.phase === 'racing' || race.phase === 'countdown' }),
   // From the grid this leaves it; from the result it is a fresh race, which is
   // the same thing said twice and so only offered once.
-  start: () => (race.phase === 'grid' ? race.start() : restart()),
+  start: () => {
+    // Off the showroom floor and onto the grid. `restart` resets the chair itself,
+    // so only the standing start has to be walked back up the ramp.
+    if (race.phase === 'grid') {
+      stage(false);
+      race.start();
+    } else restart();
+  },
   resume: () => {},
   restart,
   garage: {
@@ -384,17 +511,24 @@ const menu = createMenu({
       label: () => garage.labels.rider,
       index: () => garage.rider,
       count: () => garage.counts.riders,
-      cycle: (direction) => {
-        garage.setRider(garage.rider + direction);
+      art: portraits.riders,
+      choose: (index, direction) => {
+        garage.setRider(index);
         // The field is everyone else, so changing driver changes the grid.
         fieldAgainst(garage.rider);
+        // And the seat turns to show you who you just picked. See SWIVEL.
+        presentDriver(direction);
       },
     },
     ride: {
       label: () => garage.labels.ride,
       index: () => garage.ride,
       count: () => garage.counts.rides,
-      cycle: (direction) => garage.setRide(garage.ride + direction),
+      art: portraits.rides,
+      choose: (index, direction) => {
+        garage.setRide(index);
+        presentDriver(direction);
+      },
     },
   },
 });
@@ -618,6 +752,72 @@ const HERO_ANGLES = [0, 0.4, -0.4, 0.8, -0.8, 1.2, -1.2, 1.7].map((d) => SHOW_AN
 
 const probe = new THREE.Vector3();
 
+/*
+ * ---- the seat turns, and it is the whole difference between a portrait and a
+ * ---- product photograph ---------------------------------------------------
+ *
+ * Everything above composes a still. It is a *good* still, and held for thirty
+ * seconds while somebody reads a roster it is also an inventory photograph: a man
+ * sitting perfectly motionless in an office chair, in a room where nothing moves,
+ * under lights that do not flicker. The eye finishes it in about a second and then
+ * has nowhere to go. Nothing in the shot was wrong; there was simply no life in it.
+ *
+ * The camera is deliberately not what moves — that was tried, it was a turntable,
+ * and an orbit that never stops is a background you cannot stop looking at. What
+ * moves is the *chair*, and the reason this is the right answer rather than merely
+ * an available one is that it is what the thing being drawn actually does. An
+ * office chair swivels. Somebody sitting in one, waiting, idly turns a few degrees
+ * one way and back, and the whole game is about that chair, so the one piece of
+ * motion the screen gets is the one piece of motion the object has.
+ *
+ * Two parts, and they are kept separate because they mean different things:
+ *
+ *  - **the idle**, ±4.5° on an eleven-second sine. Slow enough that you cannot
+ *    catch it starting, wide enough that the rim light crawls along a shoulder and
+ *    the hat brim's shadow moves across the face. Nothing at a glance, everything
+ *    over the ten seconds anybody spends here.
+ *  - **the present**, a shove of about 20° that springs back whenever the driver or
+ *    the chair changes. This is the one piece of feedback the model gave you before
+ *    and it gave it in the worst possible way: the old figure vanished and a new one
+ *    appeared in the identical pose in the identical place, which reads as a texture
+ *    swap. Turning into the new one says *this is somebody else* with the chair
+ *    rather than with a transition.
+ *
+ * The camera does not follow any of it. It is parked on the yaw the chair had when
+ * the menu opened — `showYaw`, below — precisely so the swivel is visible: a camera
+ * bolted to a rotating subject renders a subject that never rotates, which is the
+ * bug the first cut of this shipped with for exactly one screenshot.
+ */
+const SWIVEL = {
+  /** Half-width of the idle, radians. */
+  sweep: 0.078,
+  /** Radians a second, so 2π/0.57 ≈ eleven seconds a round trip. */
+  rate: 0.57,
+  /** The shove a change of driver or chair is worth, radians a second. */
+  shove: 1.1,
+  /** The spring that brings it back: stiff enough to settle in about a second. */
+  stiffness: 11,
+  damping: 4.6,
+};
+
+/** The chair's own heading, taken on the frame the menu opened. See SWIVEL. */
+let showYaw = 0;
+/** How far the shove has pushed the seat off the idle, and how fast. */
+let shoved = 0;
+let shoveRate = 0;
+let showClock = 0;
+
+/**
+ * Turn the seat, because what is in it just changed.
+ *
+ * Direction comes through so stepping *up* the roster and stepping *down* it turn
+ * opposite ways — a swivel that always goes the same way is an animation, one that
+ * follows the arrow key is a response.
+ */
+function presentDriver(direction: 1 | -1): void {
+  shoveRate += SWIVEL.shove * direction;
+}
+
 /** The angle, and how much boom it has: see HERO_ANGLES. */
 function heroShot(boom: number): { angle: number; clear: number } {
   let best = HERO_ANGLES[0]!;
@@ -625,7 +825,10 @@ function heroShot(boom: number): { angle: number; clear: number } {
   const lift = (SHOW.height - SHOW.aim) / SHOW.distance;
 
   for (const angle of HERO_ANGLES) {
-    const yaw = chair.object.rotation.y + angle;
+    // The parked heading, not the seat's current one: the swivel must not be able to
+    // change which angle the shot was chosen at, or a figure turning 4° in his chair
+    // makes the camera hop to a different side of him.
+    const yaw = showYaw + angle;
     probe.set(Math.sin(yaw), lift, Math.cos(yaw)).normalize();
     const clear = physics.rayToStatic(pivot, probe, boom + CAM.margin, chair.body);
     if (clear >= boom) return { angle, clear };
@@ -644,6 +847,29 @@ function heroShot(boom: number): { angle: number; clear: number } {
  *             it can spend a second and a half there.
  */
 function showcase(dt: number, snap: boolean): void {
+  /*
+   * The seat, before the camera — the shot is composed against the heading the chair
+   * parked on, and the swivel is written on top of it afterwards.
+   *
+   * `snap` is the frame the menu opened on, which is where the parked heading is
+   * taken and where the swivel is zeroed. It has to be zeroed: the sine is driven off
+   * a clock that starts here, so a menu re-opened mid-lap would otherwise begin with
+   * the seat already 4° off true and settle into a shot nobody composed.
+   */
+  if (snap) {
+    showYaw = chair.object.rotation.y;
+    showClock = 0;
+    shoved = 0;
+    shoveRate = 0;
+  }
+  showClock += dt;
+
+  // A damped spring, so the shove overshoots a little and settles rather than sliding
+  // back — which is what a chair somebody has pushed round actually does.
+  shoveRate += (-SWIVEL.stiffness * shoved - SWIVEL.damping * shoveRate) * dt;
+  shoved += shoveRate * dt;
+  chair.object.rotation.y = showYaw + Math.sin(showClock * SWIVEL.rate) * SWIVEL.sweep + shoved;
+
   pivot.copy(chair.object.position);
   pivot.y += SHOW.aim;
 
@@ -667,7 +893,7 @@ function showcase(dt: number, snap: boolean): void {
   const reach = Math.hypot(SHOW.distance, SHOW.height - SHOW.aim) * pull;
   const { angle, clear } = heroShot(reach);
 
-  const yaw = chair.object.rotation.y + angle;
+  const yaw = showYaw + angle;
   toCamera
     .set(Math.sin(yaw), 0, Math.cos(yaw))
     .multiplyScalar(SHOW.distance * pull)
@@ -757,9 +983,10 @@ function tick(dt: number): void {
      * a kinematic capsule moved once a frame and stepped at 120 Hz is one that can
      * pass clean through the player between two solves. The player's progress is
      * the figure taken at the top of the frame — one nearest-point search a frame
-     * is ample for a rubber band measured in tens of metres.
+     * is ample for a rubber band measured in tens of metres, and for a rival
+     * deciding which side of the player to come past on.
      */
-    rivals.update(h, race.phase === 'racing', playerProgress, race.totalTime);
+    rivals.update(h, race.phase === 'racing', player, race.totalTime);
   });
   chair.sync();
   dynamics.sync();
@@ -793,12 +1020,34 @@ renderer.compile(scene, camera);
  * Everything is built, warmed and standing on the grid, so the holding card in
  * index.html has done its job.
  *
- * The menu waits for it rather than cross-fading with it: both carry the same wordmark,
- * in different places, and for a third of a second there were two of them on screen at
- * once. Title card, wipe, menu — in that order. The timeout is the belt to the
- * transition's braces, because a `transitionend` that never fires (a display change, a
- * backgrounded tab) would leave the game with no front end at all.
+ * The menu's *interface* waits for the card rather than cross-fading with it: both
+ * carry the same wordmark, in different places, and for a third of a second there were
+ * two of them on screen at once. Title card, wipe, rail — in that order. The timeout is
+ * the belt to the transition's braces, because a `transitionend` that never fires (a
+ * display change, a backgrounded tab) would leave the game with no front end at all.
+ *
+ * The menu's *shot* does not wait, and that is the fix for the worst half-second in the
+ * game. The card fades over 460 ms and what it was fading to reveal was the race: the
+ * chase camera on the grid, four rivals lined up in front of you, the driving exposure,
+ * the sharp background — held for a beat and then replaced wholesale by a portrait of
+ * one man in an empty hall. Loading screen, glimpse of a race that has not started,
+ * character select. The glimpse is the bug, and it was never a transition anyone
+ * designed: it was the gap between the card leaving and the menu opening, and the scene
+ * had no instruction about what to be during it.
+ *
+ * So `staging` puts the scene on the character select from the first frame the loop
+ * ever runs, long before the card lifts — see `frame`, where it stands in for
+ * `menu.open` in every decision about what the *world* looks like, and only there. The
+ * first frame anybody sees is the composed shot, and the rail arrives on top of a
+ * picture that is already right.
  */
+let staging = true;
+
+// And the chair is in the showroom before the first frame is drawn, not moved there
+// once the card lifts: the whole point of `staging` is that what the card uncovers is
+// already the finished shot.
+stage(true);
+
 const boot = document.getElementById('boot');
 if (boot) {
   let handed = false;
@@ -806,12 +1055,14 @@ if (boot) {
     if (handed) return;
     handed = true;
     boot.remove();
+    staging = false;
     menu.show();
   };
   boot.addEventListener('transitionend', hand);
   setTimeout(hand, 700);
   boot.classList.add('gone');
 } else {
+  staging = false;
   menu.show();
 }
 
@@ -855,13 +1106,25 @@ function frame(): void {
   const dt = Math.min(clock.getDelta(), 0.05);
   quality.sample(dt);
 
+  /*
+   * Whether the world is on the character select — which is not the same question as
+   * whether the menu is up, and the difference is the whole of the opening.
+   *
+   * `staging` is true from the first frame until the title card has finished lifting,
+   * so the shot, the lights, the lens and the field are all already the portrait's
+   * behind a card nobody can see through. `menu.open` takes over the moment the rail
+   * arrives. Every decision about the *room* below reads this; every decision about the
+   * *interface* still reads `menu.open`.
+   */
+  const staged = menu.open || staging;
+
   // Paused means the simulation stops and the frame does not: the menu is a
   // blur over a live view of the room, and a still image behind it would be a
   // screenshot with a menu on it. Nothing in `tick` runs — the clock, the solver
   // and the driver's animation are all held exactly where they were — and the
   // keys are dropped, so a W held down while the menu came up is not still held
   // down on the way out of it.
-  if (menu.open) {
+  if (staged) {
     keys.clear();
     // The camera is the only thing still moving, and it is the point of the
     // screen: the menu picks the driver and the chair, so it looks at them. The
@@ -884,8 +1147,16 @@ function frame(): void {
     // it. Snapped rather than eased: a two-second swoop back into position while
     // the countdown is already running is the camera taking a turn it was not
     // offered.
-    if (orbiting) updateCamera(0, true);
+    // The seat is left where the swivel had it, which is up to five degrees off the
+    // heading the solver believes it is on. The next step writes the body's own yaw
+    // back over it, but the camera is snapped *this* frame — so put it back first, or
+    // the lap opens on a shot aimed five degrees wide of the hall.
+    if (orbiting) {
+      chair.object.rotation.y = showYaw;
+      updateCamera(0, true);
+    }
     trackPlayer();
+    readPlayer();
     tick(dt);
 
     // The rivals' own animation. Synthetic telemetry: they have a speed and
@@ -911,10 +1182,13 @@ function frame(): void {
    * asks about. They come back the moment the menu closes, which is also the
    * moment they mean something.
    */
-  if (menu.open !== orbiting) {
+  if (staged !== orbiting) {
     showDonuts();
     // Bloom is a driving effect. See the note on `glow` in post.ts.
-    post.glow(!menu.open);
+    post.glow(!staged);
+    // And the character select is shot on a different lens: open the aperture so the
+    // office behind the subject goes soft, and close the vignette in. See `portrait`.
+    post.portrait(staged);
     /*
      * And the whole frame comes down a third of a stop for the menu.
      *
@@ -926,10 +1200,10 @@ function frame(): void {
      * three quarters of the range rather than at the top of it, so it has folds, and
      * the room behind it dark enough to be a room rather than a background.
      */
-    renderer.toneMappingExposure = menu.open ? 0.42 : 0.6;
-    for (const rig of rivalRigs) rig.object.visible = !menu.open;
+    renderer.toneMappingExposure = staged ? 0.42 : 0.6;
+    for (const rig of rivalRigs) rig.object.visible = !staged;
   }
-  orbiting = menu.open;
+  orbiting = staged;
 
   post.render();
 

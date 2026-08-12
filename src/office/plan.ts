@@ -898,8 +898,48 @@ export const BAYS: {
 // The track
 // ---------------------------------------------------------------------------
 
-/** Where the chair starts: in the hall, pointed at the way out. */
-export const SPAWN = { position: [61.0, 0.6, 38.0] as const, yaw: Math.PI / 2 };
+/**
+ * Where the chair starts: on the back row of the grid, pointed at the way out.
+ *
+ * It used to be the start line itself — `ROUTE[0]`, to the millimetre — with the
+ * field lined up *past* it. `game/grid.ts` is where that is argued out and undone;
+ * what it means here is that the spawn is now a grid slot like everybody else's,
+ * 3.5 m behind the line on the line's own tangent.
+ *
+ * The numbers are that slot, evaluated: `ROUTE[0]` is (61.0, 38.0), the run to
+ * `ROUTE[1]` is (−0.995037, 0.099504), and 3.5 m back along it is (64.483, 37.652)
+ * facing 1.67046 rad. They are written out rather than computed because this
+ * declaration is above `ROUTE` and half the building is built off it — but they
+ * are exactly `slotAt(PLAYER_SLOT)` and `GRID_YAW`, and if the line ever moves,
+ * those are what to re-evaluate.
+ */
+export const SPAWN = { position: [64.483, 0.6, 37.652] as const, yaw: 1.67046 };
+
+/**
+ * Where the character select is shot: down on Ebene 5, in the east lane.
+ *
+ * The front end used to stage the driver wherever the race was about to start — on
+ * the grid, in the reception hall, against the east glazing. That is the honest
+ * default and it is the wrong room. A character select is a garage scene in every
+ * game that has ever had one, for a reason that survives the cliché: a lit figure
+ * against a dark, enclosed, mechanical backdrop reads as *equipment being chosen*,
+ * where the same figure against a sunlit office window reads as a photograph of an
+ * office. This building already has the right room in it — a windowless concrete
+ * parking level with cages, columns and a wash box — and it was being driven through
+ * three times a lap and never once looked at.
+ *
+ * The spot is the clear lane up the east side of Ebene 5: measured against the
+ * solver, it is open from z=6 to z=36 with nothing within two and a half metres, so
+ * the camera's boom never clamps and there is nothing between the lens and the
+ * subject. Facing north, up the lane, which puts the length of the level behind the
+ * chair — depth for free, and the one thing the hall could not offer at any angle.
+ *
+ * The lighting needs no help: the level has no daylight, `render/lights.ts` flies the
+ * fitting pool to wherever the camera is, and the menu's own portrait rig is placed
+ * against the camera rather than the compass. A dark room with one lit chair in it is
+ * exactly what the rig was built for.
+ */
+export const SHOWROOM = { position: [26.5, LEVELS.garage, 26.0] as const, yaw: 0 };
 
 /**
  * The canonical lap, as a polyline through room centres and doorways.

@@ -142,6 +142,30 @@ export type DriverKey = (typeof DRIVERS)[number];
  * all five would inherit its pose. Geometry and materials are shared by
  * reference, so the clone costs a skeleton and a handful of nodes.
  */
+/**
+ * Parts a figure is carrying that its character sheet no longer asks for.
+ *
+ * The facilities manager wore headphones — a band, two cups, the accent marks on
+ * them, and a three-segment cable with a jack on the end. `blender/crew/cast.py`
+ * says `cans=False` for him and has for a while; the `.glb` in `public/kit` was
+ * exported before that and still has the lot, and re-exporting needs Blender, which
+ * a browser does not have.
+ *
+ * So they come off here, by name, at the one place every figure is built. This is a
+ * patch over a stale asset and should be deleted the next time the crew is exported
+ * — `python blender/export.py` is what makes it unnecessary. Until then it is at
+ * least honest: the sheet is the source of truth and this is the runtime agreeing
+ * with it, rather than the sheet being quietly edited to match a file nobody can
+ * rebuild.
+ */
+const STALE_PARTS: Partial<Record<DriverKey, readonly string[]>> = {
+  // Exactly what `_cans` in blender/crew/build.py builds, and nothing else: the band,
+  // the two cups, the accent mark on each, and the cable with its jack. Not `ball` or
+  // `catch`, which sound like headphone parts and are the eyeballs and the buckle
+  // under the paper bag.
+  facilities: ['hpband', 'cup1', 'cup-1', 'mark1', 'mark-1', 'cable1', 'cable2', 'cable3', 'plug'],
+};
+
 export function driver(key: DriverKey = 'intern'): THREE.Group {
   const asset = assets.get(`driver.${key}`);
   if (!asset) throw new Error(`driver "${key}" requested before loadKit() resolved`);
@@ -150,6 +174,23 @@ export function driver(key: DriverKey = 'intern'): THREE.Group {
   // The same half turn as every other asset: authored facing -Y in Blender, so it
   // arrives facing +Z and has to be turned to the game's forward.
   figure.rotation.y = Math.PI;
+
+  const stale = STALE_PARTS[key];
+  if (stale) {
+    // Collected before removing: `traverse` walks the children it is given, and
+    // removing during the walk skips siblings.
+    const drop: THREE.Object3D[] = [];
+    figure.traverse((o) => {
+      // Meshes only, which the sheet names `<Character>_<part>`. The armature's bones
+      // are bare — `cable1` is a *bone* as well as a mesh, the rig binds it by name,
+      // and taking it out is how a whole cast stops animating.
+      const cut = o.name.indexOf('_');
+      if (cut < 0) return;
+      if (stale.includes(o.name.slice(cut + 1))) drop.push(o);
+    });
+    for (const o of drop) o.removeFromParent();
+  }
+
   group.add(figure);
   return group;
 }

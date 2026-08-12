@@ -52,6 +52,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 
 import { CHAIR } from '../office/metrics';
+import { ACROSS, GRID, LINE, RUN, type GridSlot } from './grid';
 import type { Physics } from './physics';
 
 /** Same capsule as the player's, for the same reason: it is the same chair. */
@@ -65,47 +66,77 @@ const CENTRE_Y = HALF_HEIGHT + RADIUS;
  * Who sits in them is not this module's business and deliberately so: the field is
  * always *the other characters* — whoever the player did not pick out of the
  * roster — so the names and the paces arrive from outside through `setDrivers`,
- * and what lives here is the part that is about the track. Four slots, because the
- * cast is five.
+ * and what lives here is the part that is about the track.
  *
- * Each slot carries three numbers and they do different jobs:
+ * The starting blocks themselves are not here either any more. They are in
+ * `grid.ts`, because the player stands on the same grid and the two arrangements
+ * being authored separately is what produced the thing that file exists to undo:
+ * a field lined up in front of the start line. What is left here is the part that
+ * is about *driving*:
  *
- *  - `ahead` and `gridLane` are the starting block: metres of route in front of the
- *    line, and how far off the centre of it. Two abreast, two rows, with the player
- *    on the line behind the lot of them.
- *
- *    The player starting *last* is the one decision here worth arguing about, and
- *    two things settle it. The chase camera sits three and a half metres behind the
- *    chair: with the field on the grid behind the player, the opening shot of every
- *    race was four chair backs filling the frame with the player somewhere beyond
- *    them. And the line sits two metres from the exit of the hairpin in the east
- *    glazing, so anything laid out behind it wraps round the corner — the first
- *    attempt had half the field facing north while the front row faced west. Ahead
- *    of the line is six metres of straight, which fits a real two-by-two grid, and
- *    a race you start at the back of is a race with somewhere to go.
- *  - `lane` is where it drives once it is going, which is *not* its grid slot: a
+ *  - `lane` is where it drives once it is going, which is **not** its grid slot: a
  *    chair that keeps 620 mm of offset all the way round is a chair scraping the
  *    wall through every doorway on the lap.
- *  - `weave` is how much it wanders across its own lane. Three different values so
+ *  - `weave` is how much it wanders across its own lane. Different per slot so
  *    three chairs in your mirrors are not one object drawn three times.
  */
-const SLOTS: readonly { ahead: number; gridLane: number; lane: number; weave: number }[] = [
-  // Both columns sit north of the line rather than either side of it, which is also
-  // what a real grid does — the slots go on the racing side. Here the reason is the
-  // reception lounge: measured, `hall.armchair.a` leaves a slot at +0.52 with 730 mm
-  // of room, and a chair whose first act of the race is to hit the furniture is not
-  // on a grid, it is parked.
-  { ahead: 3.1, gridLane: -0.66, lane: -0.34, weave: 0.11 },
-  { ahead: 3.1, gridLane: 0.24, lane: 0.36, weave: 0.19 },
-  { ahead: 1.5, gridLane: -0.66, lane: -0.14, weave: 0.07 },
-  { ahead: 1.5, gridLane: 0.24, lane: 0.16, weave: 0.14 },
+const SLOTS: readonly { lane: number; weave: number }[] = [
+  { lane: -0.34, weave: 0.11 },
+  { lane: 0.36, weave: 0.19 },
+  { lane: -0.14, weave: 0.07 },
+  { lane: 0.16, weave: 0.14 },
 ];
 
 /** How many chairs the computer drives. One per slot. */
 export const FIELD_SIZE = SLOTS.length;
 
-/** Who is in a slot: a name and a pace, both off the roster. */
-export type Driver = { label: string; pace: number };
+/**
+ * The four axes a computer driver is made of. All 0…1 except `nerve`.
+ *
+ * Deliberately not independent-but-equivalent: `nerve` and `bold` make a driver
+ * faster *and* more likely to throw it away, `flow` and `steady` make one slower on
+ * paper and better at actually being there at the end. A field is interesting when
+ * it is spread across that trade rather than along it — which is the whole reason
+ * this type exists. Separated only by top speed, four opponents are one driver at
+ * four volumes: same corner, same speed, same line, and the race is a queue in pace
+ * order. The values live on the roster in `garage.ts`, because being the sort of
+ * driver who brakes early is a fact about the boss, not about grid slot three.
+ */
+export type DriverCharacter = {
+  /**
+   * Corner speed, as a multiplier on the grip everybody else gets: 0.9 is braking
+   * for things that do not need braking for, 1.15 is carrying it into the doorway
+   * and being right about it.
+   */
+  nerve: number;
+  /**
+   * Appetite for a pass. Low sits in the queue and waits for the straight; high
+   * pulls out the moment there is a gap, and sometimes when there is not.
+   */
+  bold: number;
+  /**
+   * Tidiness. High holds one line; low wanders across its lane and arrives at
+   * corners at slightly the wrong angle.
+   */
+  flow: number;
+  /**
+   * Whether the pace is the same on lap three as on lap one. Low fades and surges;
+   * high is a metronome.
+   */
+  steady: number;
+};
+
+/** What the field needs to know about the player to race them. */
+export type PlayerOnTrack = {
+  /** Distance driven, on the same scale as a rival's. */
+  progress: number;
+  /** Metres off the racing line, right positive — the same frame a rival's lane is in. */
+  lane: number;
+  speed: number;
+};
+
+/** Who is in a slot: a name, a pace and a character, all three off the roster. */
+export type Driver = { label: string; pace: number; drive: DriverCharacter };
 
 const TUNING = {
   /*
@@ -139,6 +170,70 @@ const TUNING = {
   findsLine: 3.5,
 } as const;
 
+/**
+ * Traffic, which is the difference between four opponents and four ghosts.
+ *
+ * Everything above is a rival against the clock. None of it says what happens when
+ * one of them catches another, and what happened was nothing: they are on separate
+ * rails, so a faster chair simply advanced *through* a slower one — two chairs in
+ * the same cubic metre, one head sticking out of the other's back, for as long as
+ * it took to get past. It is the single dumbest thing the field did, it happened in
+ * every race, and it happened directly in front of the player because the player is
+ * behind all of them at the start.
+ *
+ * So a rival now looks up the road, finds whoever is in its way, and does one of two
+ * things about it: goes round, or sits behind. Which one is what `bold` chooses.
+ */
+const TRAFFIC = {
+  /** How far ahead a chair looks for someone in its way, metres. */
+  sees: 7,
+  /**
+   * Lateral distance within which somebody counts as being in the way — and, the
+   * same number the other way round, the room a move has to leave to be worth
+   * making. A chair is 660 mm across, so two of them at 0.62 are not passing, they
+   * are the same chair drawn twice.
+   */
+  wide: 0.74,
+  /**
+   * The gap a chair holds behind one it cannot pass, metres.
+   *
+   * There has to be a *distance* in the following, not just a speed. Matching the
+   * speed of the chair in front and nothing else is a controller with no fixed
+   * point: wherever the gap happens to be when the speeds meet is where it stays,
+   * and measured, that put pairs 60 mm apart — nose in back, all the way round the
+   * lap, which looks precisely as bad as it sounds.
+   */
+  keeps: 1.6,
+  /**
+   * How far out a move goes, at most — and it is an absolute lane rather than an
+   * offset from this chair's own, because a pass is about the road and the chair
+   * being passed, not about where the passer happened to be sitting.
+   */
+  swing: 0.78,
+  /**
+   * The room a move has to leave beside the chair it is passing.
+   *
+   * A chair is 660 mm across, so this is the width of one plus a hand: it is the
+   * difference between going round somebody and going through them. Distinct from
+   * `wide`, which is the wider question of whether they are in the way at all — the
+   * two were one number for a while and it made passes impossible, because a gap
+   * big enough to notice somebody in has to be smaller than the one you would
+   * accept to drive through it.
+   */
+  clears: 0.7,
+  /**
+   * Seconds a move stays committed once made.
+   *
+   * Without it a chair that pulls out re-decides on the next step, finds the road
+   * ahead clear *because it has pulled out*, tucks back in, finds it blocked, and
+   * pulls out again — thirty times a second. Committing to a line for a second and a
+   * half is not a cosmetic smoothing, it is what makes the move a decision.
+   */
+  commits: 1.5,
+  /** Seconds between clearance probes. See `swayCap`. */
+  probes: 0.12,
+} as const;
+
 /** What the rest of the game can see of one rival. */
 export type Rival = {
   readonly label: string;
@@ -170,11 +265,14 @@ export type Rivals = {
   /**
    * Advance the field. Call from inside the fixed physics step.
    *
-   * `playerProgress` is the player's own total route distance, for the band.
-   * `live` is false on the grid, during the countdown and after the flag, and
-   * holds everybody exactly where they are.
+   * `live` is false on the grid, during the countdown and after the flag, and holds
+   * everybody exactly where they are.
+   *
+   * The player arrives as three numbers rather than one because the field has to be
+   * able to *see* them: distance for the rubber band and the standings, lane and
+   * speed so a rival catching the player goes round rather than through.
    */
-  update(h: number, live: boolean, playerProgress: number, elapsed: number): void;
+  update(h: number, live: boolean, player: PlayerOnTrack, elapsed: number): void;
   /** Back to the grid. */
   reset(): void;
   /**
@@ -195,6 +293,8 @@ export type Rivals = {
 
 type State = {
   slot: (typeof SLOTS)[number];
+  /** Where it starts. See grid.ts — the player is on the same grid. */
+  grid: GridSlot;
   driver: Driver;
   /**
    * Total route distance travelled since the world was built, absolute.
@@ -219,12 +319,35 @@ type State = {
   speed: number;
   lane: number;
   phase: number;
+  /**
+   * The widest it may sit off the racing line here without being in the building.
+   *
+   * The lane offset used to be applied blind, and through the tighter doorways on
+   * this lap — the meeting room, the cage store, the foot of the up ramp — 360 mm of
+   * it puts a chair through a frame. Re-probed against the solver a few times a
+   * second rather than every step: a wall does not move, and eight shape queries a
+   * second per rival is nothing beside four of them driving through it.
+   */
+  swayCap: number;
+  probeIn: number;
+  /** Which side a pass is being made on, the lane it goes to, and for how long. */
+  move: -1 | 0 | 1;
+  moveOut: number;
+  moveFor: number;
+  /** Where the slow drift in its pace has got to. See `steady`. */
+  mood: number;
+  /** Height, vertical speed, and whether it is off the ground. See `settle`. */
+  y: number;
+  vy: number;
+  air: boolean;
   finished: boolean;
   time: number | null;
   body: RAPIER.RigidBody;
   object: THREE.Object3D;
   view: Rival;
 };
+
+const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > hi ? hi : v);
 
 /** Shortest signed angle from a to b. */
 function angleDiff(a: number, b: number): number {
@@ -238,8 +361,6 @@ export function createRivals(
   physics: Physics,
   track: Track,
   laps: number,
-  /** Where the player starts, as a route distance. Everybody lines up behind it. */
-  startS: number,
   /** One chair-and-rider per rival, already built by the caller. */
   bodies: readonly THREE.Object3D[],
 ): Rivals {
@@ -273,11 +394,21 @@ export function createRivals(
 
     states.push({
       slot,
-      driver: { label: '', pace: 5.5 },
+      grid: GRID[i]!,
+      driver: { label: '', pace: 5.5, drive: { nerve: 1, bold: 0.5, flow: 0.7, steady: 0.8 } },
       progress: 0,
       s: 0,
       speed: 0,
-      lane: slot.gridLane,
+      lane: GRID[i]!.lane,
+      swayCap: 0.6,
+      probeIn: 0,
+      move: 0,
+      moveOut: 0,
+      moveFor: 0,
+      mood: i * 1.7,
+      y: 0,
+      vy: 0,
+      air: false,
       // Staggered so the field does not weave in step, which would read as one
       // object with four parts.
       phase: i * 2.1,
@@ -289,39 +420,204 @@ export function createRivals(
     });
   });
 
-  /** Put a rival where its distance says, and carry the numbers out to its view. */
-  function settle(state: State): void {
-    track.pointAt(state.s, at);
-    const yaw = track.headingAt(state.s);
-    // Across the lane rather than along it: the offset is applied on the route's
-    // own right-hand normal, so a rival keeps its side of the corridor through
-    // every corner instead of cutting across the line at each change of heading.
-    const nx = Math.cos(yaw);
-    const nz = -Math.sin(yaw);
-    const sway = state.lane + Math.sin(state.phase) * state.slot.weave;
+  /** The direction the race runs at the line, as a heading. Grid chairs face it. */
+  const lineHeading = Math.atan2(RUN[0], RUN[1]);
 
-    const x = at.x + nx * sway;
-    const z = at.z + nz * sway;
+  const down = new THREE.Vector3(0, -1, 0);
+  const from = new THREE.Vector3();
 
-    state.object.position.set(x, at.y, z);
+  /**
+   * The floor under a chair, asked of the building rather than of the route.
+   *
+   * `ROUTE` carries a height per vertex and `pointAt` interpolates between them, which
+   * is a good enough answer for a flat floor and the wrong answer for anything the
+   * building does between two vertices. Measured, the field was passing through the
+   * *ramps* — not the Parkhaus ramps, which the route does describe, but the four
+   * kickers, whose surfaces climb 400 mm inside two metres and which the polyline runs
+   * straight through the middle of. A chair on rails went through the pallet stack on
+   * the deck and the shelf in the store as though they were painted on.
+   *
+   * So the route says which floor a chair is on and the solver says how high it is.
+   * The reach is deliberately short in both directions: the deck's aisle and Ebene 5's
+   * back lane are three metres apart in section, and a ray long enough to find one
+   * from the other is a ray that drops the whole field a storey.
+   */
+  function groundUnder(x: number, z: number, guess: number, self: RAPIER.RigidBody): number {
+    from.set(x, guess + 0.9, z);
+    // Its own body excluded, or a chair reads its own capsule as the floor and rides
+    // up its own head.
+    const d = physics.rayToStatic(from, down, 1.9, self);
+    return d < 1.9 ? guess + 0.9 - d : guess;
+  }
+
+  /**
+   * Put a rival where its distance says, and carry the numbers out to its view.
+   *
+   * `h` is the step, and zero means *place it* rather than *drive it* — the grid, a
+   * reset, a change of driver. Without that distinction the first frame of a race
+   * would read the floor rising under a chair that has not moved and launch the whole
+   * field off the start line.
+   */
+  function settle(state: State, h = 0): void {
+    const wander = Math.sin(state.phase) * state.slot.weave * (1.6 - state.driver.drive.flow);
+    const sway = clamp(state.lane + wander, -state.swayCap, state.swayCap);
+    let x: number;
+    let z: number;
+    let floor: number;
+    let yaw: number;
+
+    if (state.progress < 0) {
+      /*
+       * Still on the grid, which is not on the route — see the note at the top of
+       * `grid.ts`. Behind the line the route turns ninety degrees into the hairpin
+       * within two metres, so a chair placed by route distance would spend the
+       * countdown facing the east glazing. The grid is the line's own straight
+       * instead, and the two agree exactly at the line: same point, same tangent,
+       * so a chair driving off its slot crosses onto the racing line without a
+       * seam to hide.
+       */
+      const back = -state.progress;
+      x = LINE[0] - RUN[0] * back + ACROSS[0] * sway;
+      z = LINE[1] - RUN[1] * back + ACROSS[1] * sway;
+      floor = 0;
+      yaw = lineHeading;
+    } else {
+      track.pointAt(state.s, at);
+      yaw = track.headingAt(state.s);
+      // Across the lane rather than along it: the offset is applied on the route's
+      // own right-hand normal, so a rival keeps its side of the corridor through
+      // every corner instead of cutting across the line at each change of heading.
+      x = at.x + Math.cos(yaw) * sway;
+      z = at.z - Math.sin(yaw) * sway;
+      floor = at.y;
+    }
+
+    /*
+     * ---- and the vertical, which is where the jumps come from -------------
+     *
+     * The chair is held on the floor the solver reports, and the moment that floor
+     * stops climbing as fast as it has been, it is let go. That is the whole of the
+     * jump: no jump table, no trigger volumes, no list of kickers to keep in step
+     * with the four that exist. A ramp is a piece of floor that goes up, a lip is
+     * where it stops, and a chair that was being lifted at two metres a second when
+     * the lifting stopped is a chair travelling upwards at two metres a second.
+     *
+     * Which is also why it is worth doing this way rather than scripting it: the day
+     * somebody puts a fifth kicker in the canteen, the field jumps it.
+     */
+    const ground = groundUnder(x, z, floor, state.body);
+    if (h <= 0) {
+      state.y = ground;
+      state.vy = 0;
+      state.air = false;
+    } else if (state.air) {
+      // A shade heavier than earth, which is the oldest trick in arcade racing: real
+      // gravity on a two-metre hop reads as slow motion.
+      state.vy -= 13 * h;
+      state.y += state.vy * h;
+      if (state.y <= ground) {
+        state.y = ground;
+        state.vy = 0;
+        state.air = false;
+      }
+    } else {
+      const climb = (ground - state.y) / h;
+      if (state.vy > 0.8 && climb < state.vy * 0.5) {
+        // The floor is no longer keeping up with the climb it was giving: a lip.
+        state.air = true;
+        state.y += state.vy * h;
+      } else {
+        state.y = ground;
+        state.vy = Math.max(0, climb);
+      }
+    }
+    floor = state.y;
+
+    state.object.position.set(x, floor, z);
     // Facing is the route's heading turned to the game's convention: `headingAt`
     // measures the direction of travel, and a chair at yaw θ faces (−sinθ, −cosθ).
     state.object.rotation.y = yaw + Math.PI;
-    state.body.setNextKinematicTranslation({ x, y: at.y + CENTRE_Y, z });
+    state.body.setNextKinematicTranslation({ x, y: floor + CENTRE_Y, z });
 
     const v = state.view as { -readonly [K in keyof Rival]: Rival[K] };
     v.label = state.driver.label;
-    v.position.set(x, at.y, z);
+    v.position.set(x, floor, z);
     v.yaw = state.object.rotation.y;
     v.speed = state.speed;
     // One plus the whole lap lengths driven, measured from this chair's own grid
     // slot so a rival three metres up the road is still on lap one. Clamped at the
     // top, or a chair sitting on the flag reports a fourth lap of a three-lap race.
-    const driven = state.progress - state.slot.ahead;
+    const driven = state.progress + state.grid.back;
     v.lap = Math.min(laps, Math.max(1, 1 + Math.floor(driven / track.total)));
     v.progress = driven;
     v.finished = state.finished;
     v.time = state.time;
+  }
+
+  /**
+   * The widest offset from the racing line that is still floor, here.
+   *
+   * Walked **outwards from the line and stopped at the first thing hit**, which is a
+   * correction rather than a refinement: the first version tested candidate offsets
+   * from the outside in and returned the first one that was clear, and that answers a
+   * different question. A chair 300 mm off line and a lamp mast 500 mm off line are
+   * both inside a metre of clearance, so a probe that finds a metre clear and stops
+   * has walked straight past the mast. Anything between the line and the rim was
+   * invisible to it — which is exactly the class of object that gets hit.
+   *
+   * Both sides, and the smaller of the two, so the answer is symmetric and a chair
+   * never has more room on one side than the number says.
+   *
+   * `RADIUS + 0.05` rather than `RADIUS`: a chair that is exactly not touching the
+   * door frame at twenty kilometres an hour is a chair touching the door frame.
+   */
+  function roomAt(state: State): number {
+    track.pointAt(state.s, at);
+    const yaw = track.headingAt(state.s);
+    const nx = Math.cos(yaw);
+    const nz = -Math.sin(yaw);
+    let cap = 0;
+    for (let off = 0.14; off <= 1.0; off += 0.11) {
+      if (physics.obstruction(at.x - nx * off, at.y, at.z - nz * off, RADIUS + 0.05).length) break;
+      if (physics.obstruction(at.x + nx * off, at.y, at.z + nz * off, RADIUS + 0.05).length) break;
+      cap = off;
+    }
+    return cap;
+  }
+
+  /**
+   * Whoever this rival is about to run into, if anybody.
+   *
+   * The player counts. A field that queues politely behind each other and then
+   * drives straight through the one chair the player is sitting in has not learned
+   * anything — and being overtaken *properly*, with somebody pulling out and coming
+   * past, is most of what makes a rival feel like a driver rather than a timer.
+   *
+   * `faster` is what turns a queue into a race: there is no point pulling out on
+   * somebody who is pulling away, and a chair that tries reads as confused.
+   */
+  function nearestAhead(
+    self: State,
+    driven: number,
+    player: PlayerOnTrack,
+  ): { gap: number; speed: number; lane: number; faster: boolean } | null {
+    let best: { gap: number; speed: number; lane: number; faster: boolean } | null = null;
+
+    const consider = (theirDriven: number, theirLane: number, theirSpeed: number): void => {
+      const gap = theirDriven - driven;
+      if (gap <= 0 || gap > TRAFFIC.sees) return;
+      if (Math.abs(theirLane - self.lane) > TRAFFIC.wide) return;
+      if (best && gap >= best.gap) return;
+      best = { gap, speed: theirSpeed, lane: theirLane, faster: self.speed > theirSpeed + 0.04 };
+    };
+
+    for (const other of states) {
+      if (other === self || other.finished) continue;
+      consider(other.progress + other.grid.back, other.lane, other.speed);
+    }
+    consider(player.progress, player.lane, player.speed);
+
+    return best;
   }
 
   /**
@@ -343,12 +639,13 @@ export function createRivals(
   function reset(): void {
     states.forEach((state, i) => {
       // On the grid: behind the line by its own slot's spacing, and off to its own
-      // side of it. Measured along the route rather than in the room, so the blocks
-      // keep their shape round the corner the start line happens to sit on.
-      state.progress = startS + state.slot.ahead;
+      // side of it. Negative, because the line is route zero and the grid is behind
+      // it — which is also what makes the flag arithmetic below come out right
+      // without anybody having to add a grid-position handicap by hand.
+      state.progress = -state.grid.back;
       state.s = ((state.progress % track.total) + track.total) % track.total;
       state.speed = 0;
-      state.lane = state.slot.gridLane;
+      state.lane = state.grid.lane;
       state.finished = false;
       state.time = null;
       state.phase = i * 2.1;
@@ -362,7 +659,8 @@ export function createRivals(
     all: states.map((s) => s.view),
     objects: states.map((s) => s.object),
 
-    update(h, live, playerProgress, elapsed) {
+    update(h, live, player, elapsed) {
+      const playerProgress = player.progress;
       for (const state of states) {
         if (!live || state.finished) {
           // Still settled every step: a finished rival is parked on the line and a
@@ -375,30 +673,150 @@ export function createRivals(
         // What the route does over the next few metres, as a radius. Read ahead
         // rather than at the wheel: a rival that starts slowing once it is already
         // in the corner is a rival that never makes the corner.
+        // Read from the line rather than from behind it while a chair is still on
+        // the grid: the route behind the line is the hairpin, and a rival that reads
+        // its own starting slot as a ninety-degree corner creeps off the line at
+        // walking pace on every start of every race.
+        const look = Math.max(state.progress, 0);
         const turn = Math.abs(
-          angleDiff(track.headingAt(state.s), track.headingAt(state.s + TUNING.lookAhead)),
+          angleDiff(track.headingAt(look), track.headingAt(look + TUNING.lookAhead)),
         );
+        // Nerve is a grip figure, which is the honest place for it: a braver driver
+        // is not one who ignores the corner, it is one who believes the castors will
+        // hold at a higher speed through the same radius — and is occasionally wrong
+        // about it, which the floor then settles.
+        const grip = TUNING.cornerGrip * state.driver.drive.nerve;
         const corner =
           turn > 1e-3
-            ? Math.max(TUNING.slowestCorner, Math.sqrt((TUNING.cornerGrip * TUNING.lookAhead) / turn))
+            ? Math.max(TUNING.slowestCorner, Math.sqrt((grip * TUNING.lookAhead) / turn))
             : Infinity;
 
         // The band, from the gap in metres of route rather than in seconds: a gap
         // measured in time swings wildly whenever either of you is in a corner.
-        const gap = playerProgress - (state.progress - state.slot.ahead);
+        const driven = state.progress + state.grid.back;
+        const gap = playerProgress - driven;
         const band = 1 + TUNING.band * Math.max(-1, Math.min(1, gap / TUNING.bandFull));
+
+        /*
+         * And the pace itself is not a constant, for anybody but the metronomes.
+         *
+         * A slow wander of a few percent, on its own phase, scaled by how unsteady
+         * the driver is. It is worth about a second a lap on the dog and nothing at
+         * all on the new one, and its real job is not the lap time: it is that the
+         * order behind the player changes on its own. A field where every gap only
+         * ever grows is a field of clocks.
+         */
+        state.mood += h * 0.21;
+        const drift = 1 + (1 - state.driver.drive.steady) * 0.075 * Math.sin(state.mood);
 
         // The slowest of what it wants, what the corner allows and what the band
         // asks for — and the band is a factor on its own pace, not on the corner's
         // limit, because rubber-banding a chair through a doorway faster than it
         // can hold the line is how a pace car ends up in a wall.
-        const target = Math.min(state.driver.pace * band, corner);
+        let target = Math.min(state.driver.pace * band * drift, corner);
+
+        /*
+         * ---- traffic ------------------------------------------------------
+         *
+         * Whoever is in the way, if anybody: nearest chair up the road, inside seven
+         * metres, within a chair's width of this one's line. Then one decision, and
+         * `bold` makes it — go round, or sit behind.
+         *
+         * The going-round is a lane offset rather than a line: these are rails, and a
+         * rail cannot dive up an inside that is not there. What it can do is move to
+         * the free side of the corridor, hold it while it goes past, and come back —
+         * which is what a pass looks like from the seat behind, and is the whole of
+         * what the player needs to read. What it must never do is what it used to,
+         * which is advance straight through the chair in front.
+         */
+        const ahead = nearestAhead(state, driven, player);
+        if (ahead) {
+          const urgency = 1 - ahead.gap / TRAFFIC.sees;
+          /*
+           * Which side to go, and it is decided by where *they* are rather than by
+           * where this chair happens to be sitting.
+           *
+           * The first cut picked the side with more road on it — `lane <= 0 ? 1 : -1`
+           * — which is a perfectly good rule for one chair on an empty lap and a way
+           * of driving into people the moment there are four. Slot lanes are 700 mm
+           * apart: a chair on −0.34 swinging +0.44 arrives at +0.10, and the chair it
+           * was trying to pass is on +0.16. Measured, that produced pairs 160 mm apart
+           * — two chairs in the same place, which is the exact failure the whole of
+           * this section exists to remove.
+           *
+           * Away from them, then, and only if the road that side is both wide enough
+           * to hold and wide enough to clear them by a chair's width. Otherwise there
+           * is no move here, and the answer is to sit behind and wait for one.
+           */
+          const side = ahead.lane >= state.lane ? -1 : 1;
+          const swung = side * Math.min(state.swayCap - 0.12, TRAFFIC.swing);
+          const canSwing =
+            Math.abs(swung) > 0.2 && Math.abs(swung - ahead.lane) >= TRAFFIC.clears;
+
+          if (state.moveFor > 0) {
+            state.moveFor -= h;
+          } else if (canSwing && state.driver.drive.bold * urgency > 0.34 && ahead.faster) {
+            // Committed, and committed for long enough to be a move rather than a
+            // twitch. See TRAFFIC.commits.
+            state.move = side;
+            state.moveOut = swung;
+            state.moveFor = TRAFFIC.commits;
+          } else {
+            state.move = 0;
+            /*
+             * Not going round, so do not go through: hold station instead.
+             *
+             * A gap controller rather than a speed match. Inside the holding distance
+             * it lifts below the chair ahead and the gap opens again; outside it, it
+             * may close at a rate proportional to the room it has, so a chair four
+             * metres back still closes and one at a metre and a half sits there. The
+             * fixed point is `keeps`, which is what makes it a queue with spacing
+             * rather than a pile.
+             */
+            const room = ahead.gap - TRAFFIC.keeps;
+            target = Math.min(target, room < 0 ? ahead.speed * 0.82 : ahead.speed + room * 0.9);
+          }
+        } else if (state.moveFor > 0) {
+          state.moveFor -= h;
+        } else {
+          state.move = 0;
+        }
+
         state.speed += (target - state.speed) * Math.min(1, h / TUNING.responds);
 
-        // Off the blocks and onto its racing line over the first few seconds. A
-        // chair that snaps from its grid slot to its lane on the first frame of the
-        // race is a chair that teleports sideways in front of the player.
-        state.lane += (state.slot.lane - state.lane) * Math.min(1, h / TUNING.findsLine);
+        // Off the blocks and onto its racing line over the first few seconds, and
+        // out to the passing side and back for as long as a move is on. A chair that
+        // snaps from its grid slot to its lane on the first frame of the race is a
+        // chair that teleports sideways in front of the player.
+        /*
+         * And a move is abandoned the moment the road stops being wide enough for it.
+         *
+         * The lane is clamped to the corridor in `settle` whatever happens here, so a
+         * chair that commits to a pass in the Grossraum and arrives at the meeting
+         * room door still in it does not end up in the frame — but it does end up
+         * squeezed back alongside the chair it was passing. Dropping the move puts it
+         * back behind instead, which is what a driver who has run out of road does.
+         */
+        if (state.moveFor > 0 && Math.abs(state.moveOut) > state.swayCap - 0.06) {
+          state.move = 0;
+          state.moveFor = 0;
+        }
+        const wants = state.move === 0 ? state.slot.lane : state.moveOut;
+        state.lane += (wants - state.lane) * Math.min(1, h / TUNING.findsLine);
+
+        /*
+         * How much road there is here, re-measured a few times a second.
+         *
+         * Grown outwards from the racing line rather than tested at the wanted offset
+         * alone: what is wanted is the largest offset that is still clear, and a
+         * single test at 440 mm says only that 440 mm is not, which leaves nothing to
+         * fall back to but the centre of the road.
+         */
+        state.probeIn -= h;
+        if (state.probeIn <= 0) {
+          state.probeIn = TRAFFIC.probes;
+          state.swayCap = roomAt(state);
+        }
 
         state.progress += state.speed * h;
         state.s = ((state.progress % track.total) + track.total) % track.total;
@@ -408,16 +826,25 @@ export function createRivals(
         // road has three metres more to cover, so everybody drives the same distance.
         // On a 390 m lap it is worth a third of a second, which is nothing — and
         // being the kind of nothing that is free to get right, it is got right.
-        if (state.progress >= flagAt + state.slot.ahead) {
-          // Parked on the line with its progress left where it is, so a rival that
-          // has finished still outranks everyone still on the last lap.
+        if (state.progress >= flagAt - state.grid.back) {
+          /*
+           * Parked just past the flag with its progress left where it is, so a rival
+           * that has finished still outranks everyone still on the last lap.
+           *
+           * *Past* it, and strung out down the road in grid order, because parking
+           * them all on the line put four chairs in one cubic metre — the single
+           * worst-looking thing in the last thirty seconds of a race, and the thing
+           * that made the pair-distance measurements look like the field was driving
+           * through itself when what it was really doing was finishing.
+           */
           state.finished = true;
           state.time = elapsed;
           state.speed = 0;
-          state.s = 0;
+          state.s = 2.4 + states.indexOf(state) * 1.7;
+          state.lane = state.grid.lane;
         }
 
-        settle(state);
+        settle(state, h);
       }
     },
 
@@ -438,7 +865,7 @@ export function createRivals(
       // so comparing raw route position would have the player last for the whole
       // first lap of a race they were leading.
       let ahead = 0;
-      for (const state of states) if (state.progress - state.slot.ahead > playerProgress) ahead++;
+      for (const state of states) if (state.progress + state.grid.back > playerProgress) ahead++;
       return ahead + 1;
     },
   };

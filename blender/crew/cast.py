@@ -108,7 +108,7 @@ ROSTER = dict([
        skin_col=(0.900, 0.620, 0.470),
        hat='none', cans=True, ears='none', accent=(0.98, 0.72, 0.10)),
 
-    _v('facilities', 'Facilities', paper=True, **BODY,
+    _v('facilities', 'Facility Manager', paper=True, **BODY,
        head=(0.580, 0.532, 0.700), head_e=(0.20, 0.23),
        eye_gap=0.186, eye_w=0.118, eye_h=0.182, eye_z=0.050,
        eyeball=0.140, eye_out=-0.082, iris=0.48, lid_drop=-16.0, lid_low=12.0,

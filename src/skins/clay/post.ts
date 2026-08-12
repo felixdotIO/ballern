@@ -63,6 +63,8 @@ export type ClayPost = {
   setSize(width: number, height: number, pixelRatio: number): void;
   /** Full bloom for the race, a fraction of it for the menu. See the note below. */
   glow(on: boolean): void;
+  /** Open the lens and close the frame in, for the character select. */
+  portrait(on: boolean): void;
   /** Feed it the chair each frame. `focus` is the point to hold sharp. */
   focusOn(camera: THREE.Camera, focus: THREE.Vector3): void;
   dispose(): void;
@@ -103,6 +105,8 @@ export function createClayPost(
   // and useless at six metres a second.
   const bokeh = new BokehPass(scene, camera, { focus: 6, aperture: 0.00035, maxblur: 0.007 });
   composer.addPass(bokeh);
+  /** What the race drives at, so the portrait can put it back. */
+  const RACE_LENS = { aperture: 0.00035, maxblur: 0.007 };
 
   // Threshold up and strength down from the lab's numbers. The hall has forty
   // metres of sunlit granite in it — far more bright area than the bench ever
@@ -112,7 +116,10 @@ export function createClayPost(
   /** What the race runs at, so the menu can put it back. */
   const RACE_BLOOM = { strength: bloom.strength, threshold: bloom.threshold };
   composer.addPass(new OutputPass());
-  composer.addPass(new ShaderPass(GradeShader));
+  const grade = new ShaderPass(GradeShader);
+  composer.addPass(grade);
+  /** What the race grades at, for the same reason. */
+  const RACE_VIGNETTE = grade.uniforms['vignette']!.value as number;
 
   const uniforms = (bokeh.materialBokeh as THREE.ShaderMaterial).uniforms;
 
@@ -135,6 +142,36 @@ export function createClayPost(
     glow(on) {
       bloom.strength = on ? RACE_BLOOM.strength : 0.09;
       bloom.threshold = on ? RACE_BLOOM.threshold : 0.98;
+    },
+
+    /**
+     * The character select's lens, and it is a different lens.
+     *
+     * The race is shot on something close to a pinhole — f-stops are for photographs,
+     * and a driver who cannot read the corner two rooms ahead because it is pretty is
+     * a driver being cheated. Hold that same frame still on one seated figure and the
+     * setting is simply wrong: the office behind him is rendered as sharply as he is,
+     * so a glazed wall of mullions, a sofa and half a kitchen all compete with the
+     * subject at the same acuity, and the eye has no instruction about where to land.
+     * It is the single biggest reason the shot read as *a screenshot with a menu over
+     * it* rather than as a portrait.
+     *
+     * So the aperture opens by a factor of three and the blur ceiling doubles. The
+     * subject is on the focal plane — `focusOn` puts it at the sitter's chest — and
+     * everything more than about a metre behind him goes soft. Nothing is hidden: the
+     * room is still there, still lit, still recognisably the office he is about to
+     * race through. It is just no longer arguing with him.
+     *
+     * The vignette closes at the same time, from 38% to 55%. A still frame can carry
+     * far more of it than a moving one — in motion a heavy vignette reads as a dirty
+     * lens, on a held portrait it reads as the light falling off — and it does the one
+     * thing the depth of field cannot, which is to darken the *corners*, where this
+     * screen keeps finding a sunlit worktop.
+     */
+    portrait(on) {
+      uniforms['aperture']!.value = on ? 0.0011 : RACE_LENS.aperture;
+      uniforms['maxblur']!.value = on ? 0.016 : RACE_LENS.maxblur;
+      grade.uniforms['vignette']!.value = on ? 0.55 : RACE_VIGNETTE;
     },
     setSize(w, h, ratio) {
       composer.setPixelRatio(ratio);

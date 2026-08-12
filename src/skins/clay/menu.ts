@@ -27,14 +27,35 @@
  *
  * The way in is still deliberately not shaped like anything else here. The pickers are
  * type with a pair of arrows ranged off the rail's right edge; the start is a filled
- * amber capsule the full width of the rail, because the last thing a title screen should
- * make you do is hunt for the button that starts the game. It is amber whether or not it
- * is selected — being the primary action is a property of the button, not of the cursor —
+ * bar the full width of the rail, because the last thing a title screen should make you
+ * do is hunt for the button that starts the game. It is filled whether or not it is
+ * selected — being the primary action is a property of the button, not of the cursor —
  * and selection shows as a ring around it.
+ *
+ * **And all of it is set in the logo's terms.** The emblem was hung at the top of this
+ * rail and shared nothing with what came under it: it leans, the rail was upright; it
+ * is a saturated brand colour, the rail was amber; its letters are heavy caps, the rail
+ * was set in sentence case. That reads as a logo dropped onto somebody else's screen,
+ * because that is what it was. So the things the emblem is made of are what the screen
+ * is made of — the lean on every display element, the flame's vermilion wherever the
+ * pointing happens, caps for the names, and a run of tapered speed slashes where the
+ * hairline used to be.
+ *
+ * The emblem has been redrawn once since, and this screen was rebuilt with it rather
+ * than repainted: the old one was chrome, so the bar had a gradient and a bevel and
+ * the slashes were a chequered flag; the new one is flat two-colour vinyl with no
+ * highlight anywhere in it, so the bar is flat vermilion with the label knocked out in
+ * black, and the chequer is gone because there is not a square in the artwork. A logo
+ * change that only changes hex values is a logo change that leaves the furniture
+ * behind, and the furniture is what people actually see.
+ *
+ * Amber is not gone: it is the light of the room the slashes are drawn on, so it runs
+ * between them in the burst behind the emblem, and it goes back to being the only
+ * accent the moment the race starts.
  *
  * Motion is one curve: a plain ease-out, a little long, no overshoot. The wordmark comes
  * down, the rail comes up, and the only thing still allowed to bounce is a pip, which is
- * 6 px across and can afford it.
+ * a 10 px tick and can afford it.
  */
 
 import { el, FAMILY, installLook } from './look';
@@ -48,9 +69,26 @@ export type MenuHooks = {
   restart(): void;
   /** Who is driving and what they are driving — see `garage.ts`. */
   garage: {
-    rider: { label(): string; index(): number; count(): number; cycle(d: 1 | -1): void };
-    ride: { label(): string; index(): number; count(): number; cycle(d: 1 | -1): void };
+    rider: Picker;
+    ride: Picker;
   };
+};
+
+/**
+ * One roster, and everything the screen needs to show all of it at once.
+ *
+ * `art` is a picture per entry, in the roster's own order — data URLs, rendered off
+ * the assets at startup by `portraits.ts`. `choose` takes an absolute index rather
+ * than a direction because the screen is a grid now: clicking the fourth chair means
+ * the fourth chair, not "three to the right of wherever you were". The direction
+ * comes along beside it anyway, because the 3D chair swivels the way you moved.
+ */
+export type Picker = {
+  label(): string;
+  index(): number;
+  count(): number;
+  art: readonly string[];
+  choose(index: number, direction: 1 | -1): void;
 };
 
 export type Menu = {
@@ -60,18 +98,14 @@ export type Menu = {
 };
 
 type Row =
-  | {
-      kind: 'pick';
-      label: string;
-      value(): string;
-      index(): number;
-      count(): number;
-      cycle(direction: 1 | -1): void;
-    }
+  | { kind: 'pick'; label: string; pick: Picker }
   | { kind: 'button'; label: string; primary?: boolean; enter(): void };
 
-/** The chevron in the start capsule. One shape, no outline, no badge. */
-const CHEVRON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 4.5 17 12l-8.5 7.5"/></svg>`;
+/*
+ * The chevron in the start bar — doubled, because the emblem's tail is a run of
+ * repeating marks and one chevron on a leaning bar reads as a disclosure arrow.
+ */
+const CHEVRON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5 11.5 12 4 18.5"/><path d="M13 5.5 20.5 12 13 18.5"/></svg>`;
 
 const CSS = `
 #menu {
@@ -88,13 +122,24 @@ const CSS = `
    *
    * The rail is sized off the wordmark it used to carry as type: "CHAIR FORCE"
    * in Bricolage at 800 measures 5.67 times its own font size, so 5.67 × 5.2vw is a hair
-   * under 30vw, and the hairline under the wordmark lands a few pixels wide of the type
-   * above it at every window width between the two clamps. That near-miss is the grid,
-   * and it is deliberately a near-miss: a rule that ends exactly on the R of FORCE looks
-   * like a coincidence nobody trusts, one that runs a few pixels past it looks drawn.
+   * under 30vw, and the emblem now fills that width instead of nearly filling it. What
+   * runs under it is a few pixels wider than it at every window width between the two
+   * clamps, which is the grid, and deliberately a near-miss: a line that ends exactly on
+   * the emblem's right edge looks like a coincidence nobody trusts, one that runs a few
+   * pixels past it looks drawn. It is moot for the slashes, which fade out rather than
+   * ending, but it is why the rail is this wide and not some other width.
    */
   --rail: clamp(330px, 30vw, 430px);
   --edge: max(5vw, 34px);
+
+  /*
+   * The counter-lean. Every leaning box carries \`--lean\` on itself and hands this
+   * to what is written inside it, so a label reads level on a bar that does not.
+   * Type takes the shear directly, which is where it belongs — but a chevron, an
+   * arrow glyph or an icon inside a sheared box only reads as a rendering fault, so
+   * those are put back upright.
+   */
+  --plumb: calc(-1 * var(--lean));
 
   /* One curve for the whole screen: a plain ease-out, no overshoot. */
   --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
@@ -114,22 +159,38 @@ const CSS = `
 
 #menu .art { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
 /*
- * A sunburst behind the wordmark: rays at 13% amber, masked to a soft disc so it never
- * reaches an edge and never reads as a pattern. It reads as light coming off the type,
- * and it is the whole of the "artwork" — the illustration is the room, which is already
- * there and already lit.
+ * The burst behind the wordmark, and it is the emblem's own burst now.
+ *
+ * The emblem is a flame with speed slashes trailing off it, so what stands behind it
+ * is speed slashes: near-horizontal streaks in the flame's vermilion, sheared to the
+ * same eleven degrees as everything else and thrown out to the left, which is the
+ * direction the artwork's own streaks trail. A second, wider set in amber runs
+ * between them at half the strength — that amber is not a leftover, it is the light
+ * of the room the streaks are drawn on, and it is what stops a vermilion burst
+ * reading as a red stain over a golden hall.
+ *
+ * The previous emblem was a star, and this was a conic sunburst radiating from behind
+ * it: the right answer to a different logo, and a decoration under this one. Masked
+ * to a soft ellipse so it never reaches an edge and never reads as a pattern.
  */
 #menu .rays {
   position: absolute;
   inset: -30%;
-  background: repeating-conic-gradient(
-    from -20deg at 24% 17%,
-    rgba(242, 160, 43, 0.13) 0deg 3deg,
-    transparent 3deg 13deg
-  );
-  -webkit-mask-image: radial-gradient(closest-side at 24% 17%, #000 6%, transparent 60%);
-  mask-image: radial-gradient(closest-side at 24% 17%, #000 6%, transparent 60%);
+  background:
+    repeating-linear-gradient(
+      -101deg,
+      rgba(238, 82, 33, 0.2) 0 3px,
+      transparent 3px 26px
+    ),
+    repeating-linear-gradient(
+      -101deg,
+      rgba(242, 160, 43, 0.1) 0 7px,
+      transparent 7px 40px
+    );
+  -webkit-mask-image: radial-gradient(58% 30% at 24% 17%, #000 4%, transparent 72%);
+  mask-image: radial-gradient(58% 30% at 24% 17%, #000 4%, transparent 72%);
 }
+
 /*
  * The scrim, and it runs sideways now rather than only down.
  *
@@ -143,7 +204,8 @@ const CSS = `
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(50% 38% at 15% 15%, rgba(242, 160, 43, 0.14), transparent 68%),
+    radial-gradient(46% 34% at 17% 15%, rgba(238, 82, 33, 0.17), transparent 70%),
+    radial-gradient(58% 44% at 15% 16%, rgba(242, 160, 43, 0.12), transparent 68%),
     linear-gradient(
       90deg,
       rgba(14, 9, 4, 0.84) 0%,
@@ -183,7 +245,7 @@ const CSS = `
  * only difference between them is when they start.
  *
  * Staggering is what turns four things moving into one thing arriving. The
- * wordmark leads because it is the title, the rule follows it because it belongs
+ * wordmark leads because it is the title, the flag follows it because it belongs
  * to it, and the deck comes last because it is what you are being handed — 60 ms
  * apart, which is under the threshold where a stagger starts reading as a queue.
  * On the way out nothing is staggered at all: the delays are dropped so the whole
@@ -194,7 +256,7 @@ const CSS = `
   margin: 0;
   /* The rail was sized off the wordmark set as type, and it still is — the logo
      just fills that width instead of nearly filling it. Height follows from the
-     artwork's own ratio, so the rule underneath sits where it always did. */
+     artwork's own ratio, so the flag underneath sits where it always did. */
   width: 100%;
   transform: translateY(-12px);
   transition: transform 460ms var(--ease);
@@ -214,26 +276,49 @@ const CSS = `
      height than the stacked wordmark it replaced. */
   max-height: min(24vh, 200px);
   object-fit: contain;
-  /* The same cast the type carried, as a shadow the shape can actually take. */
-  filter: drop-shadow(0 6px 18px rgba(20, 14, 8, 0.55));
+  /* Tighter and harder than the chrome emblem wanted. Flat vinyl over a lit room
+     needs an edge to sit on rather than a glow to float in — a wide soft shadow under
+     a shape with no depth of its own just makes it look like it is peeling. */
+  filter: drop-shadow(0 3px 10px rgba(20, 14, 8, 0.62));
 }
-#menu .rule { transform: scaleX(0.82); transform-origin: left; transition: transform 520ms var(--ease) 60ms; }
-#menu.on .rule { transform: none; }
+#menu .flag {
+  transform: skewX(var(--lean)) scaleX(0.82);
+  transform-origin: left center;
+  transition: transform 520ms var(--ease) 60ms;
+}
+#menu.on .flag { transform: skewX(var(--lean)); }
 
 /*
- * And the line that closes the block off.
+ * And the thing that closes the block off — which was a hairline, then a checkered
+ * flag, and is three speed slashes now.
  *
- * "ONE" is three characters under an eleven-character line, which leaves a notch the
- * width of eight letters with nothing under it — the wordmark reads unfinished, which is
- * most of why the old screen looked unplanned. A hairline the width of the rail resolves
- * the rag and, more usefully, states the column: everything below it is set to the same
- * two edges. It fades out to the right rather than stopping, because a rule with a hard
- * end in open carpet is a rule you have to explain.
+ * The job has not changed in any of those passes. "ONE" is a short last line under a
+ * wide emblem, so the lockup rags badly at the bottom left and reads unfinished
+ * without something to sit on; and whatever sits there also states the column,
+ * because everything below it is set to the same two edges.
+ *
+ * What changes each time is which piece of the emblem is available to do it, and it
+ * has to be a piece of the emblem or the screen goes back to having two designers.
+ * The chequered tail belonged to a logo that no longer exists — there is not one
+ * square anywhere in the new one — and what has replaced it is a run of tapered
+ * streaks trailing off the words. So: three of those, longest at the top, each fading
+ * out to nothing rather than stopping, sheared with everything else. A flag going
+ * past rather than a flag planted, which was the point of the checker too.
+ *
+ * Three, not one. A single streak under a wordmark is an underline, and an underline
+ * is a text decoration; three of unequal length is motion.
  */
-#menu .rule {
-  margin-top: 24px;
-  height: 1px;
-  background: linear-gradient(90deg, rgba(246, 239, 226, 0.36), rgba(246, 239, 226, 0.05));
+#menu .flag {
+  margin-top: 20px;
+  height: 15px;
+  background-image:
+    linear-gradient(90deg, var(--hot) 0%, rgba(238, 82, 33, 0) 100%),
+    linear-gradient(90deg, var(--hot) 0%, rgba(238, 82, 33, 0) 100%),
+    linear-gradient(90deg, var(--hot) 0%, rgba(238, 82, 33, 0) 100%);
+  background-size: 100% 3px, 64% 3px, 38% 3px;
+  background-position: 0 0, 0 6px, 0 12px;
+  background-repeat: no-repeat;
+  filter: drop-shadow(0 2px 6px rgba(20, 14, 8, 0.6));
 }
 
 /* -- the deck: everything you can actually operate -------------------------- */
@@ -256,36 +341,38 @@ const CSS = `
 }
 #menu.on .deck { transform: none; }
 /* Leaving: no stagger, nothing held back. */
-#menu:not(.on) .rule,
+#menu:not(.on) .flag,
 #menu:not(.on) .deck { transition-delay: 0ms; }
 
 #menu .picks { display: flex; flex-direction: column; gap: 36px; }
 #menu .acts { display: flex; flex-direction: column; gap: 12px; }
 
-/* -- a picker -------------------------------------------------------------- */
+/* -- a picker: the whole roster, laid out ---------------------------------- */
 
 #menu .pick .cap {
   display: block;
-  font-weight: 600;
+  width: fit-content;
+  font-weight: 700;
   font-variation-settings: 'opsz' 14;
   font-size: 11.5px;
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--paper-3);
   text-shadow: 0 2px 6px rgba(20, 14, 8, 0.85);
+  /* Leaning from the baseline out, so the caption and the row below it share a left
+     edge at the line they actually sit on rather than at the top of the caption. */
+  transform: skewX(var(--lean));
+  transform-origin: left bottom;
   transition: color 200ms var(--ease);
 }
-#menu .pick.on .cap { color: var(--amber); }
+#menu .pick.on .cap { color: var(--hot); }
 
 /*
  * The selected row lifts a hair off the rail.
  *
- * Two pixels and a slightly brighter caption, which sounds like nothing and is
- * the difference between a list where you know which row the arrow keys will act
- * on and one where you have to read the colours to find out. It is on the row
- * rather than on the name so the caption, the name and the pips move together —
- * moving only the name reads as the text being nudged rather than as the row
- * being chosen.
+ * Two pixels and a slightly brighter caption, which sounds like nothing and is the
+ * difference between a list where you know which row the arrow keys will act on and
+ * one where you have to read the colours to find out.
  */
 #menu .pick {
   transform: translateY(2px);
@@ -293,122 +380,190 @@ const CSS = `
 }
 #menu .pick.on { transform: translateY(0); }
 
-#menu .pick .line { display: flex; align-items: center; margin-top: 5px; }
+/* -- the tiles ------------------------------------------------------------- */
+
+#menu .pick .grid {
+  display: flex;
+  gap: 5px;
+  margin-top: 9px;
+  width: fit-content;
+}
+
+/*
+ * A tile is a sheared frame with an upright picture in it.
+ *
+ * Both halves of that are deliberate. The frame leans because everything on this
+ * screen leans — a grid of squares under an emblem cut at eleven degrees is the one
+ * element that would announce it had been added later. The *picture* does not lean,
+ * because a sheared face is a broken face: this is the one place on the screen where
+ * the counter-lean is not a nicety but the whole reason the shear is affordable.
+ *
+ * The image is scaled up inside its frame rather than fitted to it. A rectangle
+ * sheared eleven degrees leaves a triangle of nothing in two corners, and 1.18 is
+ * what covers them at this aspect — cheaper and steadier than clipping each tile to
+ * its own parallelogram path.
+ */
+#menu .pick .tile {
+  flex: none;
+  /*
+   * 50 px, which is what seven of them plus their gaps come to inside the rail — the
+   * roster's own length sets this, not taste. It is worth every pixel it can get: a
+   * head rendered at 46 was a thumbnail of a thumbnail, and the entire argument for
+   * showing the roster is that you can tell one of them from another at a glance.
+   */
+  width: 50px;
+  height: 50px;
+  padding: 0;
+  border: 1.5px solid rgba(246, 239, 226, 0.16);
+  border-radius: 3px;
+  background: rgba(20, 14, 8, 0.5);
+  overflow: hidden;
+  cursor: pointer;
+  transform: skewX(var(--lean));
+  transition:
+    background-color 200ms var(--ease),
+    border-color 200ms var(--ease),
+    transform 220ms var(--ease),
+    box-shadow 220ms var(--ease);
+}
+#menu .pick .tile img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: skewX(var(--plumb)) scale(1.18);
+  /* Off, until it is the one you have got. A roster of eleven full-colour heads all
+     shouting at once is a sticker album; the greyed ones are the list, and the lit
+     one is the answer. */
+  filter: grayscale(0.5) brightness(0.86) contrast(0.98);
+  transition: filter 220ms var(--ease);
+}
+#menu .pick .tile:hover {
+  border-color: rgba(246, 239, 226, 0.4);
+  transform: skewX(var(--lean)) translateY(-2px);
+}
+#menu .pick .tile:hover img { filter: grayscale(0.15) brightness(1); }
+
+/*
+ * And the one you have got: filled with the flame, lifted out of the row, and its
+ * picture given back its colour. Three changes on one element, which is the amount a
+ * 46 px square needs to be unmistakable at a glance across a screen.
+ */
+#menu .pick .tile.at {
+  border-color: transparent;
+  background: var(--hot);
+  transform: skewX(var(--lean)) translateY(-3px) scale(1.06);
+  box-shadow: 0 10px 22px -10px rgba(238, 82, 33, 0.95);
+}
+#menu .pick .tile.at img { filter: none; }
+/* Tabbed to rather than clicked. A ring, in the colour everything selected uses, and
+   only for keyboard focus — a halo that appears on every mouse click is the reason so
+   many people turn focus rings off. */
+#menu .tile:focus-visible,
+#menu .start:focus-visible,
+#menu .chip:focus-visible {
+  outline: 2px solid var(--hot);
+  outline-offset: 3px;
+}
+
+/* -- and its name ---------------------------------------------------------- */
+
+/*
+ * Under the row rather than beside it, and set the way the emblem sets a word: caps,
+ * heavy, slightly narrowed, leaning.
+ *
+ * Caps because every word in the logo is one, and because these are titles — "The
+ * Summer Intern" is a driver, not a sentence. Narrowed to 90% because caps are wide
+ * and the rail is not. The shear is taken from the baseline out for the same reason
+ * the caption's is: it is a left-aligned column, and a shear about the middle would
+ * pull every long name a few pixels off the margin the short ones sit on.
+ */
 #menu .pick .name {
-  flex: 1 1 auto;
-  min-width: 0;
-  order: 1;
-  margin-right: 16px;
-  font-weight: 700;
+  display: block;
+  margin-top: 9px;
+  font-weight: 800;
   font-variation-settings: 'opsz' 40;
-  font-size: clamp(24px, 1.95vw, 31px);
+  font-stretch: 90%;
+  font-size: clamp(20px, 1.55vw, 25px);
   line-height: 1.12;
-  letter-spacing: -0.02em;
+  letter-spacing: 0.005em;
+  text-transform: uppercase;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   text-shadow: var(--cast);
-  cursor: pointer;
+  transform: skewX(var(--lean));
+  transform-origin: left bottom;
   will-change: transform, opacity;
 }
-/*
- * Both arrows ranged off the right edge of the rail, rather than one either side of the
- * name. Flanking looks tidier in a mockup and is worse in use: the names are between six
- * and twenty characters, so the right-hand arrow walks half the rail every time you press
- * it and you end up chasing the control you are already using. Pinned, only the gap
- * between the name and the pair changes.
- */
-#menu .pick .arw {
-  flex: none;
-  order: 2;
-  width: 38px;
-  height: 38px;
-  display: grid;
-  place-items: center;
-  border: 1.5px solid rgba(246, 239, 226, 0.2);
-  border-radius: 50%;
-  background: rgba(20, 14, 8, 0.46);
-  box-shadow: 0 6px 18px -8px rgba(12, 7, 3, 0.85);
-  color: var(--paper-2);
-  font-family: ${FAMILY};
-  font-size: 11px;
-  line-height: 1;
-  cursor: pointer;
-  transition:
-    background-color 200ms var(--ease),
-    border-color 200ms var(--ease),
-    color 200ms var(--ease),
-    transform 200ms var(--ease);
-}
-#menu .pick .arw.r { order: 3; margin-left: 8px; }
-#menu .pick.on .arw { background: var(--amber); border-color: transparent; color: var(--ink); }
-#menu .pick .arw:hover { transform: scale(1.08); }
-#menu .pick .arw:active { transform: scale(0.9); }
-/* Tabbed to rather than clicked. A ring, in the amber everything selected uses,
-   and only for keyboard focus — a halo that appears on every mouse click is the
-   reason so many people turn focus rings off. */
-#menu .arw:focus-visible,
-#menu .start:focus-visible,
-#menu .chip:focus-visible {
-  outline: 2px solid var(--amber);
-  outline-offset: 3px;
-}
-
-#menu .pick .pips { display: flex; gap: 5px; margin-top: 10px; }
-#menu .pick .pips i {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: rgba(246, 239, 226, 0.3);
-  box-shadow: 0 1px 3px rgba(20, 14, 8, 0.6);
-  /* The one thing small enough to still be allowed a bounce. */
-  transition: background-color 180ms var(--ease), transform 260ms cubic-bezier(0.34, 1.5, 0.64, 1);
-}
-#menu .pick .pips i.at { background: var(--amber); transform: scale(1.4); }
 
 /* -- the way in ------------------------------------------------------------ */
 
 /*
- * Filled amber always, not only when selected. The old capsule was a ghost until the
- * cursor found it, which meant the one control nobody should have to look for was styled
- * as though it were optional. Selection is a ring instead — a state on top of a role,
+ * Filled always, not only when selected. The old capsule was a ghost until the cursor
+ * found it, which meant the one control nobody should have to look for was styled as
+ * though it were optional. Selection is a ring instead — a state on top of a role,
  * rather than a state standing in for one.
+ *
+ * And it is the emblem's bar: sheared, cornered at 3 px rather than rounded to a pill,
+ * **flat vermilion with the label knocked out of it in black.** That last part is the
+ * whole change from the pass before, and it is not a recolour. The old bar was three
+ * pinks in a vertical gradient with a white hairline along the top edge and a dark one
+ * along the bottom, because the old emblem was chrome and had a top bevel and an
+ * extrusion to imitate. This one has neither: it is two flat colours with a hard edge
+ * between them, and every gradient, inset and highlight that was there to echo a bevel
+ * is now echoing something that does not exist. Vinyl has no highlight.
+ *
+ * Black on the orange rather than paper, for the same reason: it is what the artwork
+ * does. It also happens to be the better of the two — ink on this vermilion is 4.8:1
+ * where paper is 3.1 — but that is a bonus rather than the argument.
  */
 #menu .start {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 18px;
-  height: 64px;
-  padding: 0 24px 0 28px;
+  height: 62px;
+  padding: 0 24px 0 26px;
   border: none;
-  border-radius: 999px;
-  background: var(--amber);
+  border-radius: 3px;
+  background: var(--hot);
   color: var(--ink);
   font-family: ${FAMILY};
-  font-weight: 700;
+  font-weight: 800;
   font-variation-settings: 'opsz' 40;
-  font-size: 21px;
-  letter-spacing: -0.005em;
-  box-shadow: 0 16px 34px -16px rgba(242, 160, 43, 0.8);
+  font-stretch: 92%;
+  font-size: 20px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  transform: skewX(var(--lean));
+  /* One shadow, and it is the light the bar throws rather than an edge on it. */
+  box-shadow: 0 16px 34px -16px rgba(238, 82, 33, 0.9);
   cursor: pointer;
   transition:
     box-shadow 260ms var(--ease),
-    filter 200ms var(--ease),
+    background-color 200ms var(--ease),
     transform 220ms var(--ease);
 }
+/* The label and the chevron sit level on it; only the bar leans. */
+#menu .start > * { transform: skewX(var(--plumb)); }
 #menu .start.on {
   box-shadow:
-    0 0 0 2px rgba(246, 239, 226, 0.55),
-    0 18px 40px -14px rgba(242, 160, 43, 0.9);
+    0 0 0 2px rgba(246, 239, 226, 0.62),
+    0 18px 40px -14px rgba(238, 82, 33, 0.95);
 }
-#menu .start:hover { filter: brightness(1.06); }
-#menu .start:active { transform: translateY(2px); }
-#menu .start svg { width: 24px; height: 24px; display: block; }
+/* A tint of the one colour, not a brightness filter: filters lift the black label
+   with the bar, and the label is meant to stay the darkest thing on the screen. */
+#menu .start:hover { background: var(--hot-lift); }
+#menu .start:active {
+  background: var(--hot-deep);
+  transform: skewX(var(--lean)) translateY(2px);
+}
+#menu .start svg { width: 22px; height: 22px; display: block; }
 #menu .start svg path {
   fill: none;
   stroke: currentColor;
-  stroke-width: 2.6;
+  stroke-width: 2.4;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -419,24 +574,28 @@ const CSS = `
   display: flex;
   align-items: center;
   gap: 12px;
-  height: 50px;
+  height: 48px;
   padding: 0 22px;
   border: 1.5px solid rgba(246, 239, 226, 0.18);
-  border-radius: 999px;
+  border-radius: 3px;
   background: rgba(20, 14, 8, 0.46);
   color: var(--paper);
   font-family: ${FAMILY};
-  font-weight: 600;
+  font-weight: 700;
   font-variation-settings: 'opsz' 18;
-  font-size: 15.5px;
+  font-size: 14px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  transform: skewX(var(--lean));
   cursor: pointer;
   transition:
     border-color 220ms var(--ease),
     background-color 220ms var(--ease),
     transform 220ms var(--ease);
 }
-#menu .chip.on { border-color: var(--amber); background: rgba(20, 14, 8, 0.72); }
-#menu .chip:active { transform: translateY(2px); }
+#menu .chip > * { transform: skewX(var(--plumb)); }
+#menu .chip.on { border-color: var(--hot); background: rgba(20, 14, 8, 0.72); }
+#menu .chip:active { transform: skewX(var(--lean)) translateY(2px); }
 #menu .chip svg { width: 20px; height: 20px; display: block; }
 #menu .chip svg path {
   fill: none;
@@ -462,7 +621,6 @@ const CSS = `
     --rail: min(440px, calc(100vw - 2 * var(--edge)));
   }
   #menu .rail { left: 50%; transform: translateX(-50%); text-align: center; }
-  #menu .brand .one { justify-content: center; }
   /*
    * Here the type is over the figure rather than beside it, so the bottom of the scrim
    * has to do the work the left of it does in the wide layout. Two thirds of the frame,
@@ -479,24 +637,37 @@ const CSS = `
         rgba(14, 9, 4, 0.88) 100%
       );
   }
-  #menu .rule {
-    background: linear-gradient(
-      90deg,
-      rgba(246, 239, 226, 0.04),
-      rgba(246, 239, 226, 0.3),
-      rgba(246, 239, 226, 0.04)
-    );
+  /*
+   * The slashes state the column in the wide layout — they run off the left margin,
+   * the width of the rail, because that is the edge everything below them is set to.
+   * Centred there is no column to state, so they shrink to a mark under the emblem
+   * and are centred as a block, which is the same call the splash makes. Still ranged
+   * left inside that block and still fading right: a streak trails, and one that
+   * tapers at both ends is a leaf.
+   */
+  #menu .flag {
+    width: clamp(120px, 26vw, 170px);
+    margin-left: auto;
+    margin-right: auto;
+    transform-origin: center;
   }
-  /* A name has two 38 px arrows and the window's own margins out of its way here rather
-     than one rail edge, so it is set smaller — "The Summer Intern" is seventeen
-     characters and an ellipsis on a driver's name is not a name. */
-  #menu .pick .name { text-align: center; margin: 0 10px; font-size: clamp(19px, 5.6vw, 27px); }
-  #menu .pick .arw { order: 0; }
-  #menu .pick .arw.r { order: 3; margin-left: 0; }
-  #menu .pick .pips { justify-content: center; }
-  /* A caption at 34% paper is a whisper against a carpet and legible; against a sunlit
-     trouser leg, which is where it lands in this layout, it is not. */
-  #menu .pick .cap { color: var(--paper-2); }
+  #menu.on .flag { transform: skewX(var(--lean)); }
+
+  /* A name has the window's own margins out of its way here rather than one rail
+     edge, so it is set smaller — "The Summer Intern" is seventeen characters and an
+     ellipsis on a driver's name is not a name. */
+  #menu .pick .name { text-align: center; font-size: clamp(17px, 4.6vw, 24px); }
+  /* Shrink-to-fit boxes, so \`text-align\` on the rail cannot reach them — centring a
+     box that is only as wide as its contents is a margin, not an alignment. */
+  #menu .pick .cap,
+  #menu .pick .grid { margin-left: auto; margin-right: auto; }
+  /* And they lean about their own middle here, not their left edge, or the shear
+     walks each line a few pixels off the centre the one above it is on. */
+  #menu .pick .cap,
+  #menu .pick .name { transform-origin: bottom center; }
+  /* Tracking lands after the last letter too, so a centred caption sits half a space
+     left of centre. Paid back at the front. */
+  #menu .pick .cap { text-indent: 0.18em; }
   #menu .start { justify-content: center; gap: 14px; padding: 0 26px; }
   #menu .chip { justify-content: center; }
 }
@@ -521,13 +692,21 @@ const CSS = `
  * is — and when the two disagree the smaller of the two should win.
  */
 @media (max-height: 700px) {
-  #menu .rule { margin-top: 18px; }
+  /* The slashes close up: 2 px streaks 4 px apart rather than 3 and 6. Still three
+     of them — two is a pair of rules, and a pair of rules is a table. */
+  #menu .flag {
+    margin-top: 14px;
+    height: 10px;
+    background-size: 100% 2px, 64% 2px, 38% 2px;
+    background-position: 0 0, 0 4px, 0 8px;
+  }
   #menu .deck { gap: 30px; }
   #menu .picks { gap: 24px; }
-  #menu .pick .name { font-size: clamp(22px, 1.8vw, 27px); }
-  #menu .pick .pips { margin-top: 8px; }
-  #menu .start { height: 56px; font-size: 19px; }
-  #menu .chip { height: 44px; font-size: 15px; }
+  #menu .pick .grid { margin-top: 7px; gap: 4px; }
+  #menu .pick .tile { width: 42px; height: 42px; }
+  #menu .pick .name { margin-top: 6px; font-size: clamp(18px, 1.45vw, 22px); }
+  #menu .start { height: 54px; font-size: 18px; }
+  #menu .chip { height: 42px; font-size: 13px; }
 }
 `;
 
@@ -550,7 +729,7 @@ export function createMenu(hooks: MenuHooks): Menu {
   deck.append(picks, acts);
 
   const rail = el('div', 'rail');
-  rail.append(brand, el('div', 'rule'), deck);
+  rail.append(brand, el('div', 'flag'), deck);
 
   const art = el('div', 'art');
   art.append(el('div', 'rays'), el('div', 'wash'), el('div', 'vig'));
@@ -577,8 +756,11 @@ export function createMenu(hooks: MenuHooks): Menu {
   function bump(node: Element, direction: 1 | -1): void {
     node.animate(
       [
-        { transform: `translateX(${direction * 7}px)`, opacity: 0.15 },
-        { transform: 'translateX(0)', opacity: 1 },
+        // The lean is restated in both frames because a keyframe replaces the transform
+        // it lands on rather than adding to it, and the name carries one from the sheet.
+        // It is the same eleven degrees `--lean` sets; if that moves, this moves.
+        { transform: `skewX(-11deg) translateX(${direction * 7}px)`, opacity: 0.15 },
+        { transform: 'skewX(-11deg) translateX(0)', opacity: 1 },
       ],
       // 190 rather than 260: held down, the arrow key repeats at about 30 a
       // second on a stock keyboard, and any transition longer than the repeat
@@ -595,39 +777,60 @@ export function createMenu(hooks: MenuHooks): Menu {
 
       if (row.kind === 'pick') {
         const name = node.querySelector('.name')!;
-        const value = row.value();
+        const value = row.pick.label();
         if (name.textContent !== value) name.textContent = value;
 
-        const at = row.index();
-        node.querySelectorAll('.pips i').forEach((pip, n) => pip.classList.toggle('at', n === at));
+        const at = row.pick.index();
+        node.querySelectorAll('.tile').forEach((tile, n) => tile.classList.toggle('at', n === at));
       }
     }
   }
 
   /**
-   * Step a picker, and fade the name in from the side it came from.
+   * Take one of them, and make the screen say so three times over.
    *
-   * The pip that has just been left gets a shove in the same direction. It is two
-   * lines and it is the only thing on the screen that says which way you are
-   * moving through a list — the name arriving from the left could as easily be a
-   * name arriving.
+   * The name fades in from the side it arrived from, the chair in the room swivels
+   * that way, and the tile itself pops — three signals for one act, which sounds
+   * excessive and is the difference between a picker that responds and one that
+   * merely updates. Two of them are on the thing you were looking at (the tile you
+   * clicked, the name under it) and one is on the thing you are choosing *for* (the
+   * driver in the chair), which is the one that makes it a character select.
+   *
+   * `to` is absolute and wraps, so the same call serves a click on the seventh tile
+   * and a right-arrow off the end of the row.
    */
-  function step(i: number, direction: 1 | -1): void {
+  function take(i: number, to: number, direction: 1 | -1): void {
     const row = rows[i];
     if (row?.kind !== 'pick') return;
-    const was = row.index();
-    row.cycle(direction);
+    const count = row.pick.count();
+    const next = ((to % count) + count) % count;
+    if (next === row.pick.index()) return;
+
+    row.pick.choose(next, direction);
     paint();
 
     const node = nodes[i]!;
     const name = node.querySelector('.name');
     if (name) bump(name, direction);
 
-    const left = node.querySelectorAll('.pips i')[was];
-    left?.animate(
-      [{ transform: `scale(1.4) translateX(${direction * -2}px)` }, { transform: 'scale(1)' }],
-      { duration: 220, easing: 'cubic-bezier(0.22, 0.61, 0.36, 1)' },
+    // The tile takes the same overshoot the pips used to, at the size a 46 px square
+    // can carry: enough to catch the eye moving along the row, not enough to shove
+    // its neighbours.
+    const tile = node.querySelectorAll('.tile')[next];
+    tile?.animate(
+      [
+        { transform: `skewX(-11deg) translateY(-3px) scale(1.24) rotate(${direction * -2}deg)` },
+        { transform: 'skewX(-11deg) translateY(-3px) scale(1.06)' },
+      ],
+      { duration: 260, easing: 'cubic-bezier(0.34, 1.5, 0.64, 1)' },
     );
+  }
+
+  /** Walk a picker by one, wrapping. What the arrow keys and the wheel do. */
+  function step(i: number, direction: 1 | -1): void {
+    const row = rows[i];
+    if (row?.kind !== 'pick') return;
+    take(i, row.pick.index() + direction, direction);
   }
 
   function render(): void {
@@ -646,43 +849,49 @@ export function createMenu(hooks: MenuHooks): Menu {
       if (row.kind === 'pick') {
         const pick = el('div', 'pick');
 
-        // Written left, name, right, and reordered in CSS: the wide layout ranges both
-        // arrows off the rail's right edge, the narrow one puts them back either side of
-        // a centred name. Same three nodes, same reading order for anything that walks
-        // the DOM.
-        const left = el('button', 'arw l', '◀');
-        const right = el('button', 'arw r', '▶');
-        const name = el('b', 'name');
-
-        const line = el('div', 'line');
-        line.append(left, name, right);
-
-        const pips = el('div', 'pips');
-        for (let n = 0; n < row.count(); n++) pips.append(el('i'));
-
-        pick.append(el('span', 'cap', row.label), line, pips);
-
-        left.addEventListener('click', () => {
-          index = i;
-          step(i, -1);
-        });
-        // Clicking the name means the same thing Enter does on it: the next one.
-        for (const node of [right, name]) {
-          node.addEventListener('click', () => {
+        /*
+         * The whole roster, laid out at once.
+         *
+         * This was a nameplate with an arrow either side of it, and the arrows were the
+         * thing everybody disliked about the screen. Fairly: two 40 px boxes marked ◀
+         * and ▶, floating in the middle of the rail, are a *stepper* — the control you
+         * put on a number field — and a stepper says the list is long, ordered, and not
+         * worth showing. This list is seven people with different heads, which is the
+         * most interesting thing on the screen, and the stepper hid six of them behind
+         * a button press each.
+         *
+         * So all of them are on screen, in a row, with the one you have got lit up:
+         * which is how every character select since Street Fighter II has done it, and
+         * it is not a coincidence. You can *see* the roster, count it, pick the dog
+         * directly, and — the part a stepper can never do — notice that there is a dog.
+         */
+        const grid = el('div', 'grid');
+        row.pick.art.forEach((art, n) => {
+          const tile = el('button', 'tile') as HTMLButtonElement;
+          tile.type = 'button';
+          const image = el('img');
+          (image as HTMLImageElement).src = art;
+          (image as HTMLImageElement).alt = '';
+          (image as HTMLImageElement).draggable = false;
+          tile.append(image);
+          tile.addEventListener('click', () => {
             index = i;
-            step(i, 1);
+            take(i, n, n >= row.pick.index() ? 1 : -1);
           });
-        }
+          grid.append(tile);
+        });
+
+        const name = el('b', 'name');
+        pick.append(el('span', 'cap', row.label), grid, name);
         select(pick);
 
         /*
          * And the wheel steps it.
          *
-         * A row of things with two arrows on it is a carousel, and every carousel
-         * on every other screen this player has used today responds to a scroll.
-         * Accumulated rather than acted on per event, because a trackpad emits
-         * dozens of two-pixel deltas per flick and one flick should mean one
-         * driver, not five.
+         * A row of things you choose between is a carousel, and every carousel on every
+         * other screen this player has used today responds to a scroll. Accumulated
+         * rather than acted on per event, because a trackpad emits dozens of two-pixel
+         * deltas per flick and one flick should mean one driver, not five.
          */
         let wheel = 0;
         pick.addEventListener(
@@ -731,22 +940,8 @@ export function createMenu(hooks: MenuHooks): Menu {
     // The order here is the order down the rail *and* the order the arrow keys walk,
     // which is the point of the rail: one list, in one place, in one direction.
     rows = [
-      {
-        kind: 'pick',
-        label: 'Driver',
-        value: () => g.rider.label(),
-        index: () => g.rider.index(),
-        count: () => g.rider.count(),
-        cycle: (d) => g.rider.cycle(d),
-      },
-      {
-        kind: 'pick',
-        label: 'Chair',
-        value: () => g.ride.label(),
-        index: () => g.ride.index(),
-        count: () => g.ride.count(),
-        cycle: (d) => g.ride.cycle(d),
-      },
+      { kind: 'pick', label: 'Driver', pick: g.rider },
+      { kind: 'pick', label: 'Chair', pick: g.ride },
       // On the line and on the result there is nothing to go back to, so starting and
       // restarting are the same button and only one is offered. Mid-race they are
       // genuinely different — and stacked rather than sat side by side, the primary one
