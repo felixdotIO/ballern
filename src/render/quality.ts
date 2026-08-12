@@ -1,0 +1,215 @@
+/**
+ * Resolution that gives way before the frame rate does.
+ *
+ * Everything expensive in this renderer is paid per fragment: the area lights,
+ * the ambient occlusion, the bloom chain. That makes buffer resolution the one
+ * dial that moves all of them at once and moves nothing about how the game
+ * plays — a chair at 1.5× and a chair at 1× steer identically, and only one of
+ * them misses the corner because the frame arrived 40 ms late.
+ *
+ * So the pixel ratio is not a constant. It is held as high as the machine can
+ * carry at a steady 60, and dropped a step at a time when it cannot. The rule
+ * this obeys is the one that matters in a racing game and nowhere else quite so
+ * much: input-to-photon latency is the product, and a soft frame that arrives on
+ * the beat beats a sharp one that does not.
+ *
+ * What it must never do is oscillate. A controller that reacts to a single slow
+ * frame will resize the entire post chain — which is itself a stall — and then
+ * react to that. Hence the median rather than the mean, the dead band, the
+ * asymmetric thresholds, and the cooldown after every change.
+ */
+
+export type Quality = {
+  /** Feed it every frame's wall-clock delta, in seconds. */
+  sample(dt: number): void;
+  /** Current buffer scale, for the readout. */
+  ratio(): number;
+  /** Median frame time over the recent window, in milliseconds. */
+  frameMs(): number;
+  /**
+   * Take it off the automatic and move it a rung.
+   *
+   * There is a limit to how well a heuristic can guess what somebody wants to
+   * look at, and this project has now hit it twice from opposite directions —
+   * once tuned down until the image was soft, once tuned up until the frame
+   * dropped. The person looking at the screen can see both of those instantly
+   * and the controller can see neither, so they get the dial.
+   */
+  step(direction: 1 | -1): void;
+  /** Hand it back to the controller. */
+  auto(): void;
+  /** False once the player has touched it. */
+  automatic(): boolean;
+};
+
+type Options = {
+  /** Never go below this. Past it the image stops being worth looking at. */
+  min?: number;
+  /** Never go above this, however fast the machine is. */
+  max?: number;
+  /** The beat we are trying to hold, in milliseconds. */
+  target?: number;
+  apply(ratio: number): void;
+};
+
+/** Frames of history the median is taken over. Half a second at 60. */
+const WINDOW = 32;
+
+/** Seconds to wait after a change before believing the numbers again. */
+const COOLDOWN = 0.75;
+
+/**
+ * The ladder, coarse on purpose, and with a floor under it.
+ *
+ * Continuous scaling sounds better and is worse: every distinct value is a
+ * fresh set of render targets and a fresh set of shader recompiles for the
+ * passes that bake resolution into a define. Five rungs cover the range from a
+ * laptop iGPU to a discrete card, and once the controller settles on one it can
+ * stay there for the whole session.
+ *
+ * The bottom two rungs are gone. On a 2× display, 1.0 is a buffer at half the
+ * screen's linear resolution being upscaled to reach it, and 0.75 is worse —
+ * they are not "lower quality", they are a visibly pixelated image, and no
+ * frame rate buys that back. If the machine cannot hold 1.25 the honest answer
+ * is to render fewer things, not fewer pixels, which is what the light budget
+ * in lights.ts now exists to do.
+ */
+const LADDER = [1.0, 1.25, 1.5, 1.75, 2.0] as const;
+
+export function createQuality({ min = 1.25, max = 2, target = 1000 / 60, apply }: Options): Quality {
+  const rungs = LADDER.filter((r) => r >= min && r <= max);
+  // Start one rung below the ceiling. Opening at the top means the first
+  // second of every session is the slowest, which is also the second the player
+  // is forming an opinion.
+  let index = Math.max(0, rungs.length - 2);
+
+  const history = new Float32Array(WINDOW);
+  history.fill(target);
+  let cursor = 0;
+  let filled = 0;
+  let cooldown = COOLDOWN;
+
+  const sorted = new Float32Array(WINDOW);
+
+  function median(): number {
+    const n = Math.max(1, filled);
+    sorted.set(history.subarray(0, n));
+    const view = sorted.subarray(0, n);
+    view.sort();
+    return view[n >> 1]!;
+  }
+
+  /**
+   * A chosen resolution survives a reload.
+   *
+   * Without this the dial is a thing you have to find and set again every time
+   * the page comes back, which is worse than not having it — a setting you
+   * cannot make stick is not a setting. Wrapped because a page served from a
+   * file:// URL or in a locked-down context throws on the first touch of
+   * localStorage, and a graphics preference is not worth a blank screen over.
+   */
+  const STORE = 'ballern.resolution';
+  const remember = (value: string) => {
+    try {
+      localStorage.setItem(STORE, value);
+    } catch {
+      /* no storage, no memory. The dial still works for this session. */
+    }
+  };
+
+  let automatic = true;
+  try {
+    const saved = localStorage.getItem(STORE);
+    const rung = saved === null ? -1 : rungs.findIndex((r) => r === Number(saved));
+    if (rung >= 0) {
+      index = rung;
+      automatic = false;
+    }
+  } catch {
+    /* as above */
+  }
+
+  apply(rungs[index]!);
+
+  return {
+    step(direction) {
+      automatic = false;
+      const next = Math.max(0, Math.min(rungs.length - 1, index + direction));
+      if (next === index) return;
+      index = next;
+      apply(rungs[index]!);
+      remember(String(rungs[index]));
+      history.fill(target);
+      filled = 0;
+      cooldown = COOLDOWN;
+    },
+    auto() {
+      automatic = true;
+      remember('auto');
+      history.fill(target);
+      filled = 0;
+      cooldown = COOLDOWN;
+    },
+    automatic: () => automatic,
+
+    sample(dt) {
+      if (!automatic) return;
+      /**
+       * A frame nobody watched is not evidence about anything.
+       *
+       * requestAnimationFrame in a hidden or fully occluded window fires at
+       * something like once a second, and every one of those deltas looks like a
+       * catastrophically slow frame. Sampling them walked the ladder all the way
+       * to the bottom while the window was in the background, so coming back to
+       * the game meant coming back to the worst image it can produce and waiting
+       * several seconds for it to climb out. Which is exactly backwards: the
+       * frames that were slow were the ones nobody saw.
+       */
+      if (typeof document !== 'undefined' && document.hidden) return;
+
+      const ms = dt * 1000;
+
+      /**
+       * And a stall is not a frame rate either.
+       *
+       * A shader compiling, a garbage collection, the compositor losing a beat:
+       * these are single events, they are not what the next second will look
+       * like, and reacting to one by resizing the entire post chain makes the
+       * following frame worse. Anything past three times the target is dropped
+       * rather than clamped — clamping still lets a run of them drag the median
+       * down a rung. A machine genuinely running at 30 fps is well inside this
+       * and is still measured honestly.
+       */
+      if (ms > target * 3) return;
+
+      history[cursor] = ms;
+      cursor = (cursor + 1) % WINDOW;
+      if (filled < WINDOW) filled++;
+
+      cooldown -= dt;
+      if (cooldown > 0 || filled < WINDOW) return;
+
+      const m = median();
+
+      // Down on a clear miss, up only on a comfortable win. The asymmetry is
+      // what keeps the controller from hunting across the rung it wants: the
+      // cost of one step up has to fit inside the headroom before we take it.
+      if (m > target * 1.12 && index > 0) {
+        index--;
+      } else if (m < target * 0.72 && index < rungs.length - 1) {
+        index++;
+      } else {
+        return;
+      }
+
+      apply(rungs[index]!);
+      cooldown = COOLDOWN;
+      // The resize itself is a stall. Forget the window rather than let it
+      // trigger the opposite correction on the next frame.
+      history.fill(target);
+      filled = 0;
+    },
+    ratio: () => rungs[index]!,
+    frameMs: () => median(),
+  };
+}

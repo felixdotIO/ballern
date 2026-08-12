@@ -1,0 +1,14 @@
+# dependencies and build output
+node_modules/
+dist/
+
+# Blender render output — regenerable from blender/*.py
+blender/out/
+*.blend1
+
+# python bytecode
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
