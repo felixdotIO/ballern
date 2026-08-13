@@ -697,25 +697,46 @@ scene.add(pinatas.group);
 /**
  * Where a seat stands, 1-based.
  *
- * Over `seats` — everybody — rather than over the computer's chairs, which is what
- * this used to ask `rivals.placeOf` for. That was right for exactly as long as the
- * only person on the grid was the one reading the number: it counts rails ahead and
- * adds one, so in a room it cheerfully reported second place to somebody being led
- * by three of their friends. The position on screen and the ordinal on the result
- * card both come from here, so both were wrong together.
+ * Two separate faults met here, and the fix needs both halves.
  *
- * The comparison is sound because every seat's `progress` is the same quantity:
- * distance *driven*, with the grid handicap already folded in. A rail publishes
- * `state.progress + state.grid.back` (see `v.progress` in `rivals.ts`), the local
- * chair accumulates from its own slot's `back`, and a proxy carries whatever the
- * machine driving it worked out the same way. Ranking raw route position instead
- * would put whoever started at the back last for the whole first lap of a race they
- * were leading.
+ * ---- it has to be everybody ----------------------------------------------
+ *
+ * This asked `rivals.placeOf`, which counts the computer's chairs. That was right
+ * for exactly as long as the only person on the grid was the one reading the
+ * number; in a room it cheerfully reported second place to somebody being led by
+ * three of their friends. Verified in a two-client race: 4th, to a chair that was
+ * genuinely last. The position on screen and the ordinal on the result card both
+ * come from here, so both were wrong together.
+ *
+ * ---- and it has to be the road, not the odometer -------------------------
+ *
+ * `seat.progress` is distance *driven* — road position with the chair's own grid
+ * slot already added on. Ranking that sorts the field by how far each chair has
+ * travelled since the flag, with every slot counting as its own start line, and on
+ * a grid 3.5 m deep that is a different race: with nobody moving at all it reads
+ * 5th at −0.1 m and 1st at 0.0, so the moment the back-row chair edges forward it
+ * leads a race it has not started. It runs the other way for the rest of the lap
+ * too — a chair genuinely 1.7 m up the road counts as behind, because it started
+ * further forward and so has less road on its odometer.
+ *
+ * So the slot comes back off, and what is compared is one place on the road against
+ * another. The grid handicap is then carried by where the chairs actually *are*
+ * rather than added a second time, and a place changes hands on the frame the noses
+ * cross. It works for a chair over the wire for the same reason it works for a rail:
+ * a pose carries the sender's driven distance, and this end knows which slot they
+ * started from.
+ *
+ * Ties go to whoever is asking — `>` and not `>=` — which is the convention every
+ * racing game uses and the only one that does not read as being robbed.
  */
+function roadOf(id: number): number {
+  return (seats[id]?.progress ?? 0) - (seatSlots[id]?.back ?? 0);
+}
+
 function placeOf(id: number): number {
-  const mine = seats[id]?.progress ?? 0;
+  const mine = roadOf(id);
   let ahead = 0;
-  for (const seat of seats) if (seat.id !== id && seat.progress > mine) ahead++;
+  for (const seat of seats) if (seat.id !== id && roadOf(seat.id) > mine) ahead++;
   return ahead + 1;
 }
 
