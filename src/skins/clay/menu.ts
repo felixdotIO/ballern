@@ -874,13 +874,15 @@ export function createMenu(hooks: MenuHooks): Menu {
 
     <h3>In the air</h3>
     <p>Every ramp pays out on the landing: for the hang time, for how far round you
-       got, and for anything you brought all the way over. Land on the castors. Land
-       on the backrest and you get nothing and lose half your speed.</p>
+       got, and for anything you brought all the way over. Keep holding Space off a
+       jump and the chair flips as many times as there is room for — it will not start
+       one it cannot finish. Come down on the backrest anyway and you get nothing and
+       lose half your speed.</p>
     <dl>
+      <dt>Space</dt><dd>in the air it is not drift, it is a flip. Hold it to keep
+        flipping</dd>
+      <dt>Space + S</dt><dd>backwards instead</dd>
       <dt>A D</dt><dd>spin, once the castors are off the floor</dd>
-      <dt>Tap W or S</dt><dd>flip forwards or backwards — it goes the whole way round
-        on its own, and you can chain another the moment it lands. A throttle you were
-        already holding up the ramp is not a trick: let go of it and ask</dd>
     </dl>
 
     <h3>Piñatas</h3>

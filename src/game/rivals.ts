@@ -52,7 +52,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 
 import { CHAIR } from '../office/metrics';
-import { ACROSS, GRID, LINE, RUN, type GridSlot } from './grid';
+import { ACROSS, GRID, LINE, PLAYER_SLOT, RUN, type GridSlot } from './grid';
 import type { Physics } from './physics';
 
 /** Same footprint as the player's, for the same reason: it is the same chair. */
@@ -1108,12 +1108,43 @@ export function createRivals(
       });
     },
 
+    /*
+     * Who is in front — which is a question about the *road*, and was being answered
+     * about the odometer.
+     *
+     * This compared `state.progress + state.grid.back`, the distance a rival has
+     * driven from its own grid slot, against `playerProgress`, which is the same
+     * quantity measured from the player's. So the field was ranked by how far each
+     * chair had travelled since the flag, with every slot counting as its own start
+     * line.
+     *
+     * On a grid 3.5 m deep that is not a rounding error, it is a different race.
+     * Measured, sweeping the argument during the countdown with the whole field
+     * stationary: **5th at −0.1 m and 1st at 0.0**. Every chair has driven nothing,
+     * so the moment the player edges forward they lead a race they have not started,
+     * from the back row, with four chairs in front of them.
+     *
+     * And it runs the other way for the rest of the lap. A rival genuinely 1.7 m up
+     * the road was still counted behind, because it started 2.5 m further forward
+     * and so had less road on its odometer. The threshold was `3.5 − back`: 2.5 m
+     * for the front row, 1.2 m for the second, in the player's favour, permanently.
+     * Which is why the readout could disagree with the windscreen in both directions
+     * at once and never settle.
+     *
+     * `state.progress` is already the honest quantity — distance past the line,
+     * starting at `−back` on the grid, exactly as `reset` sets it. The player's is
+     * that same number with their own slot's depth added, so take it back off. Then
+     * it is one place on the road against another: the grid handicap is carried by
+     * where the chairs actually *are* rather than added a second time, and a place
+     * changes hands on the frame the noses cross.
+     *
+     * Ties still go to the player — `>` and not `>=` — which is the convention every
+     * racing game uses and the only one that does not read as being robbed.
+     */
     placeOf(playerProgress) {
-      // Distance driven, not distance along the route: the field starts up the road,
-      // so comparing raw route position would have the player last for the whole
-      // first lap of a race they were leading.
+      const past = playerProgress - PLAYER_SLOT.back;
       let ahead = 0;
-      for (const state of states) if (state.progress + state.grid.back > playerProgress) ahead++;
+      for (const state of states) if (state.progress > past) ahead++;
       return ahead + 1;
     },
   };
