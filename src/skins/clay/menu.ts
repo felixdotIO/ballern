@@ -279,20 +279,64 @@ const CSS = `
   inset: 0;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  /* Centred. It sat against the right edge, which is where a sheet belongs when the
+     thing behind it is the subject — but these two are the subject while they are up,
+     and a column of text pinned to one side of a wide screen reads as a sidebar. */
+  justify-content: center;
   padding: max(4vh, 28px) var(--edge) max(6vh, 34px);
-  background: linear-gradient(90deg, rgba(14, 9, 5, 0.55) 0%, rgba(14, 9, 5, 0.88) 45%);
+  /* Symmetric now the sheet is: the old scrim was a left-to-right ramp built to sit
+     darkest under a right-hand column, and centred it put the shadow off to one side
+     of the thing it was meant to be behind. */
+  background: radial-gradient(120% 100% at 50% 50%, rgba(14, 9, 5, 0.62) 0%, rgba(14, 9, 5, 0.9) 100%);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 220ms var(--ease);
+  transition: opacity 200ms var(--ease);
 }
 #menu .briefing.on { opacity: 1; pointer-events: auto; }
 
+/*
+ * The sheet is a surface, not text on a scrim.
+ *
+ * It used to be typography floating directly over a dimmed room, which reads as an
+ * overlay that failed to load rather than as a thing that has come forward. A panel
+ * with an edge, a shadow and a little blur behind it gives the one bit of depth this
+ * screen needs — the room is still there, it is just behind something now.
+ *
+ * The blur is what earns the elevation: without it the panel is a flat rectangle of
+ * brown over a photograph, and the eye reads the two as the same distance away.
+ */
 #menu .briefing .sheet {
   width: min(560px, 92%);
   max-height: 100%;
   overflow-y: auto;
   color: var(--paper);
+  padding: clamp(22px, 3.4vh, 34px) clamp(22px, 3vw, 36px);
+  border-radius: var(--r);
+  border: 1px solid rgba(246, 239, 226, 0.11);
+  background: linear-gradient(180deg, rgba(41, 30, 21, 0.90) 0%, rgba(24, 17, 11, 0.94) 100%);
+  box-shadow: var(--cast);
+  backdrop-filter: blur(16px) saturate(118%);
+  -webkit-backdrop-filter: blur(16px) saturate(118%);
+  /*
+   * Coming and going.
+   *
+   * A rise and a hair of scale rather than a slide: the sheet arrives from where it
+   * already is instead of flying in from an edge, which is what keeps it feeling like
+   * a layer over the room and not a drawer. No overshoot — the note at the top of
+   * this file is explicit that only a pip is allowed to bounce.
+   *
+   * Out is quicker than in, and deliberately: an entrance can afford to be admired
+   * and an exit is somebody who has decided to leave. Matching the two makes
+   * dismissing it feel like wading.
+   */
+  transform: translateY(12px) scale(0.99);
+  opacity: 0;
+  transition: transform 170ms var(--ease), opacity 150ms var(--ease);
+}
+#menu .briefing.on .sheet {
+  transform: none;
+  opacity: 1;
+  transition: transform 320ms var(--ease), opacity 240ms var(--ease);
 }
 #menu .briefing h2 {
   margin: 0;
@@ -362,7 +406,19 @@ const CSS = `
 }
 #menu .lobby input:focus { outline: none; border-color: var(--hot); }
 #menu .lobby input.code { text-transform: uppercase; letter-spacing: .3em; max-width: 150px; }
-#menu .lobby .acts { display: flex; gap: 10px; flex-wrap: wrap; margin: 16px 0 4px; }
+/*
+ * Row, and said out loud.
+ *
+ * This container inherits flex-direction: column from the rail above it, so the
+ * default cross-axis stretch was sizing every button to the full width of the sheet
+ * — which is why "Create a room" arrived as a banner. Naming the direction fixes it
+ * without anybody having to know that.
+ */
+#menu .lobby .acts {
+  display: flex; flex-direction: row; flex-wrap: wrap; align-items: center;
+  gap: 10px; margin: 16px 0 4px;
+}
+#menu .lobby .acts button { flex: 0 0 auto; }
 #menu .lobby button {
   background: rgba(255,255,255,.07); color: var(--paper); cursor: pointer;
   border: 1px solid rgba(255,255,255,.18); border-radius: 6px; padding: 9px 16px;
