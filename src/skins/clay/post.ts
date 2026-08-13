@@ -207,9 +207,26 @@ export function createClayPost(
      * thing the depth of field cannot, which is to darken the *corners*, where this
      * screen keeps finding a sunlit worktop.
      */
+    /*
+     * The portrait lens, pulled most of the way back toward the race's.
+     *
+     * It was f/0.0011 with a 0.016 blur ceiling — three times the aperture the
+     * race drives on and more than twice the ceiling — and at that setting the
+     * office behind the driver is not *soft*, it is gone: the desks, the ceiling
+     * grid and the whole depth of the room dissolve into coloured smears a metre
+     * behind his shoulder. Which loses the thing the shot was moved into the
+     * Grossraum to get. The joke of this game is the room, and a room rendered as
+     * bokeh is a room nobody can tell is an office.
+     *
+     * 0.0005 and 0.0085 is roughly half a stop over the race rather than three,
+     * and it does the job the depth of field was actually brought in for: the
+     * subject still sits clearly in front of the background, the background still
+     * stops competing with him for acuity, and it is still recognisably the floor
+     * he is about to race through.
+     */
     portrait(on) {
-      uniforms['aperture']!.value = on ? 0.0011 : RACE_LENS.aperture;
-      uniforms['maxblur']!.value = on ? 0.016 : RACE_LENS.maxblur;
+      uniforms['aperture']!.value = on ? 0.0005 : RACE_LENS.aperture;
+      uniforms['maxblur']!.value = on ? 0.0085 : RACE_LENS.maxblur;
       grade.uniforms['vignette']!.value = on ? 0.55 : RACE_VIGNETTE;
     },
     setSize(w, h, ratio) {
