@@ -1182,61 +1182,175 @@ const probe = new THREE.Vector3();
  * under lights that do not flicker. The eye finishes it in about a second and then
  * has nowhere to go. Nothing in the shot was wrong; there was simply no life in it.
  *
- * The camera is deliberately not what moves — that was tried, it was a turntable,
- * and an orbit that never stops is a background you cannot stop looking at. What
- * moves is the *chair*, and the reason this is the right answer rather than merely
- * an available one is that it is what the thing being drawn actually does. An
- * office chair swivels. Somebody sitting in one, waiting, idly turns a few degrees
- * one way and back, and the whole game is about that chair, so the one piece of
- * motion the screen gets is the one piece of motion the object has.
+ * The camera is deliberately not what moves — that was tried, it was a camera
+ * turntable, and an *orbit* that never stops is a background you cannot stop
+ * looking at, because everything in the room slides behind a subject that never
+ * changes. What moves is the *chair*, and the reason this is the right answer
+ * rather than merely an available one is that it is what the thing being drawn
+ * actually does. An office chair swivels. The whole game is about that chair, so
+ * the one piece of motion the screen gets is the one piece of motion the object
+ * has: the room stays still, the seat comes round.
  *
- * Two parts, and they are kept separate because they mean different things:
+ * It began as an idle — ±4.5° on an eleven-second sine, a figure shifting in his
+ * seat — and it is a full turn now, about twenty seconds a revolution. Which is a
+ * different thing and answers a different question. The sine says *this is alive*.
+ * A revolution says *this is what you picked, from every side* — the hat from the
+ * back, the lanyard, what the chair's frame actually looks like — and on a screen
+ * whose entire job is choosing between eleven things that differ only in their
+ * silhouette, showing the silhouette all the way round is the screen doing its
+ * work rather than decorating itself.
  *
- *  - **the idle**, ±4.5° on an eleven-second sine. Slow enough that you cannot
- *    catch it starting, wide enough that the rim light crawls along a shoulder and
- *    the hat brim's shadow moves across the face. Nothing at a glance, everything
- *    over the ten seconds anybody spends here.
- *  - **the present**, a shove of about 20° that springs back whenever the driver or
- *    the chair changes. This is the one piece of feedback the model gave you before
- *    and it gave it in the worst possible way: the old figure vanished and a new one
- *    appeared in the identical pose in the identical place, which reads as a texture
- *    swap. Turning into the new one says *this is somebody else* with the chair
- *    rather than with a transition.
+ * And it can be taken hold of, which is the half that makes it a *picker* rather
+ * than an animation. Drag anywhere off the rail and the seat follows the pointer
+ * one-to-one, either way; let go and it keeps whatever spin the flick gave it and
+ * eases back into the slow turn. That is a turntable in the sense a shop window is
+ * one, and it is the one interaction on this screen that is about the object
+ * instead of about the list.
+ *
+ * So there is exactly one quantity — `turnRate`, radians a second — and everything
+ * writes to it:
+ *
+ *  - **the idle** is what it decays back to, and is the whole of the motion when
+ *    nobody touches anything.
+ *  - **the drag** overrides it outright, because a dragged object that lags the
+ *    finger is a dragged object nobody believes; the release hands back the
+ *    pointer's own velocity, so a flick throws it.
+ *  - **the present**, a kick whenever the driver or the chair changes. This is the
+ *    one piece of feedback the model gave you before and it gave it in the worst
+ *    possible way: the old figure vanished and a new one appeared in the identical
+ *    pose in the identical place, which reads as a texture swap. Turning into the
+ *    new one says *this is somebody else* with the chair rather than with a
+ *    transition. It rides on the same rate as everything else, so the kick is a
+ *    change of speed rather than a separate spring fighting the turn.
  *
  * The camera does not follow any of it. It is parked on the yaw the chair had when
  * the menu opened — `showYaw`, below — precisely so the swivel is visible: a camera
  * bolted to a rotating subject renders a subject that never rotates, which is the
- * bug the first cut of this shipped with for exactly one screenshot.
+ * bug the first cut of this shipped with for exactly one screenshot. `heroShot`
+ * reads `showYaw` for the same reason, so a seat coming round cannot walk the
+ * camera to a different side of the room.
  */
 const SWIVEL = {
-  /** Half-width of the idle, radians. */
-  sweep: 0.078,
-  /** Radians a second, so 2π/0.57 ≈ eleven seconds a round trip. */
-  rate: 0.57,
-  /** The shove a change of driver or chair is worth, radians a second. */
-  shove: 1.1,
-  /** The spring that brings it back: stiff enough to settle in about a second. */
-  stiffness: 11,
-  damping: 4.6,
+  /** Radians a second left alone: 2π/0.32 ≈ twenty seconds a revolution. */
+  idle: 0.32,
+  /**
+   * Radians of seat per pixel of drag.
+   *
+   * Set so a drag across the full width of a 1440-pixel window is a little over
+   * one revolution — near enough one-to-one that the seat feels held rather than
+   * geared, and short enough that you can get all the way round a figure without
+   * running out of desk.
+   */
+  perPixel: 0.0052,
+  /**
+   * Seconds a thrown spin takes to give back two thirds of its speed to the idle.
+   *
+   * Exponential rather than linear, so a hard flick decays fast while it is fast
+   * and then coasts — which is what a chair on a gas lift does, and what makes the
+   * difference between letting go of something and switching an animation on.
+   */
+  settle: 1.1,
+  /** As fast as a flick is allowed to throw it. Past this it is a strobe. */
+  maxRate: 11,
+  /** The kick a change of driver or chair is worth, radians a second. */
+  shove: 2.2,
 };
 
 /** The chair's own heading, taken on the frame the menu opened. See SWIVEL. */
 let showYaw = 0;
-/** How far the shove has pushed the seat off the idle, and how fast. */
-let shoved = 0;
-let shoveRate = 0;
-let showClock = 0;
+/** How far round the seat has come from that heading, and how fast it is going. */
+let turned = 0;
+let turnRate = SWIVEL.idle;
 
 /**
  * Turn the seat, because what is in it just changed.
  *
  * Direction comes through so stepping *up* the roster and stepping *down* it turn
  * opposite ways — a swivel that always goes the same way is an animation, one that
- * follows the arrow key is a response.
+ * follows the arrow key is a response. Added to the rate rather than assigned, so
+ * holding an arrow down winds the seat up instead of re-triggering the same nudge.
  */
 function presentDriver(direction: 1 | -1): void {
-  shoveRate += SWIVEL.shove * direction;
+  turnRate = THREE.MathUtils.clamp(turnRate + SWIVEL.shove * direction, -SWIVEL.maxRate, SWIVEL.maxRate);
 }
+
+/*
+ * ---- and the pointer, which is the other half of it -----------------------
+ *
+ * Registered on the window rather than on the canvas, because the canvas is not
+ * what the pointer lands on: `#menu` is a fixed, full-screen element and it takes
+ * every event over the whole viewport while it is up. So the test is not *what was
+ * hit* but *what was not*: anything inside the rail or the briefing sheet belongs
+ * to the interface and is left alone, and everything else — which is the picture —
+ * is the turntable.
+ *
+ * `staged` rather than `menu.open`, for the same reason every other decision about
+ * the room reads it: the shot is on screen before the menu is, and a figure you
+ * cannot grab for the first half second is a figure that looks like it was never
+ * meant to be grabbed.
+ */
+/** Whether the world is on the character select. Written once a frame in `frame`. */
+let staged = true;
+/** The pointer id currently turning the seat, or null. */
+let turning: number | null = null;
+let lastX = 0;
+let lastAt = 0;
+/**
+ * Pointer velocity in radians a second, smoothed.
+ *
+ * Smoothed rather than taken from the last event, because a pointer that stops
+ * dead a frame before it is lifted reports zero — which throws away the whole
+ * gesture and makes a fast drag end in a dead stop about a third of the time.
+ * Smoothed *hard* the other way and a flick would have to be sustained to
+ * register, so a third of the new reading a move is about right.
+ */
+let flick = 0;
+
+/** Does this event belong to the interface rather than to the picture? */
+function onInterface(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest('.rail, .briefing') !== null;
+}
+
+addEventListener('pointerdown', (e) => {
+  if (!staged || turning !== null || e.button !== 0 || onInterface(e.target)) return;
+  turning = e.pointerId;
+  lastX = e.clientX;
+  lastAt = e.timeStamp;
+  flick = 0;
+  turnRate = 0;
+  document.body.style.cursor = 'grabbing';
+});
+
+addEventListener('pointermove', (e) => {
+  if (e.pointerId !== turning) return;
+  const step = (e.clientX - lastX) * SWIVEL.perPixel;
+  lastX = e.clientX;
+  turned += step;
+  /*
+   * And the rate that move implies, folded into a running average.
+   *
+   * Off the event's own clock rather than the frame's: a pointer reports at the
+   * device's rate, which on a trackpad is faster than the display and on a
+   * coalesced touchmove is slower, and dividing a real delta by an assumed 16 ms
+   * makes a slow careful drag throw as hard as a flick. Floored at a quarter of a
+   * millisecond so two events in the same tick cannot divide by nothing.
+   */
+  const dt = Math.max(0.00025, (e.timeStamp - lastAt) / 1000);
+  lastAt = e.timeStamp;
+  flick += (step / dt - flick) * 0.35;
+  e.preventDefault();
+});
+
+function release(e: PointerEvent): void {
+  if (e.pointerId !== turning) return;
+  turning = null;
+  // Whatever the flick was worth, and from here the ordinary decay carries it back
+  // to the idle — including all the way through zero if it was thrown backwards.
+  turnRate = THREE.MathUtils.clamp(flick, -SWIVEL.maxRate, SWIVEL.maxRate);
+  document.body.style.cursor = staged ? 'grab' : '';
+}
+addEventListener('pointerup', release);
+addEventListener('pointercancel', release);
 
 /** The angle, and how much boom it has: see HERO_ANGLES. */
 function heroShot(boom: number): { angle: number; clear: number } {
@@ -1278,17 +1392,24 @@ function showcase(dt: number, snap: boolean): void {
    */
   if (snap) {
     showYaw = chair.object.rotation.y;
-    showClock = 0;
-    shoved = 0;
-    shoveRate = 0;
+    turned = 0;
+    turnRate = SWIVEL.idle;
   }
-  showClock += dt;
 
-  // A damped spring, so the shove overshoots a little and settles rather than sliding
-  // back — which is what a chair somebody has pushed round actually does.
-  shoveRate += (-SWIVEL.stiffness * shoved - SWIVEL.damping * shoveRate) * dt;
-  shoved += shoveRate * dt;
-  chair.object.rotation.y = showYaw + Math.sin(showClock * SWIVEL.rate) * SWIVEL.sweep + shoved;
+  /*
+   * One rate, decaying to the idle, integrated into one angle — except while the
+   * pointer has hold of it, when the angle is written directly by the drag and
+   * there is nothing here to add.
+   *
+   * The decay is exponential and framed as a half-life rather than a step, so it
+   * behaves the same at 30 fps as at 144 and a dropped frame cannot overshoot the
+   * idle and reverse the turn.
+   */
+  if (turning === null) {
+    turnRate = SWIVEL.idle + (turnRate - SWIVEL.idle) * Math.pow(0.33, dt / SWIVEL.settle);
+    turned += turnRate * dt;
+  }
+  chair.object.rotation.y = showYaw + turned;
 
   pivot.copy(chair.object.position);
   pivot.y += SHOW.aim;
@@ -1644,8 +1765,11 @@ function frame(): void {
    * behind a card nobody can see through. `menu.open` takes over the moment the rail
    * arrives. Every decision about the *room* below reads this; every decision about the
    * *interface* still reads `menu.open`.
+   *
+   * Declared at module scope rather than here because the pointer handlers that turn
+   * the seat read it too, and they run between frames — see the note above SWIVEL.
    */
-  const staged = menu.open || staging;
+  staged = menu.open || staging;
 
   // Paused means the simulation stops and the frame does not: the menu is a
   // blur over a live view of the room, and a still image behind it would be a
@@ -1676,10 +1800,20 @@ function frame(): void {
     // it. Snapped rather than eased: a two-second swoop back into position while
     // the countdown is already running is the camera taking a turn it was not
     // offered.
-    // The seat is left where the swivel had it, which is up to five degrees off the
-    // heading the solver believes it is on. The next step writes the body's own yaw
-    // back over it, but the camera is snapped *this* frame — so put it back first, or
-    // the lap opens on a shot aimed five degrees wide of the hall.
+    /*
+     * The seat is left wherever the turntable had it, which is now anywhere at all
+     * rather than the five degrees the old idle could reach — press start while the
+     * figure is showing you his back and the mesh is 180° off the heading the solver
+     * believes it is on. The next fixed step writes the body's own transform back
+     * over the mesh, but the camera is snapped *this* frame, so it has to be put back
+     * first or the lap opens looking down the hall the wrong way.
+     *
+     * `chair.sync()` rather than writing `showYaw`, which is what this used to do and
+     * was quietly wrong even at five degrees: `showYaw` is the heading the chair had
+     * when the *menu* opened, and the menu opens in the showroom while the race starts
+     * on the grid. Two different headings. The body is the only thing that knows which
+     * one is current, so ask it.
+     */
     /*
      * The resolution controller only watches the *race*.
      *
@@ -1697,7 +1831,7 @@ function frame(): void {
     quality.sample(dt);
 
     if (orbiting) {
-      chair.object.rotation.y = showYaw;
+      chair.sync();
       updateCamera(0, true);
     }
     tick(dt);
@@ -1761,6 +1895,20 @@ function frame(): void {
      */
     renderer.toneMappingExposure = staged ? 0.42 : 0.6;
     for (const rig of rivalRigs) rig.object.visible = !staged;
+    /*
+     * And the picture says it can be picked up.
+     *
+     * On the body rather than on the canvas, because the canvas is not what the
+     * pointer is over — `#menu` covers the whole viewport while it is up. The rail's
+     * own controls set `cursor: pointer` on themselves and win over this, which is
+     * exactly the right split: a hand over the room, a finger over the list.
+     *
+     * A drag in progress is dropped on the way out. The menu can close under a held
+     * pointer — Enter on the start bar, or Escape — and a race that begins with the
+     * turntable still owning the seat is a race whose chair spins on the grid.
+     */
+    document.body.style.cursor = staged ? 'grab' : '';
+    if (!staged) turning = null;
   }
   orbiting = staged;
 
