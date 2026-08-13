@@ -12,6 +12,36 @@
          the same reason the font is: it is the screen, not decoration on it. -->
     <link rel="preload" href="/art/key-art.webp" as="image" />
     <link rel="preload" href="/art/logo.webp" as="image" />
+    <!--
+      And the kit, which is the load.
+
+      `loadKit()` is awaited at the top of `main.ts`, so nothing is drawn until every
+      one of these has arrived — but nothing *asks* for them until the module graph
+      has downloaded, parsed and started running. Which makes the two largest
+      downloads in the product strictly sequential: a megabyte of JavaScript, and only
+      then seven megabytes of characters, with the connection idle through the parse
+      in between.
+
+      Declaring them here starts both at once. It moves no bytes and changes no code
+      path — the loader still asks for exactly these URLs and finds them already in
+      flight — it only stops the second queue waiting for the first to finish. On a
+      fast connection it is worth little, which is why it was easy to miss; on the
+      connection the person who complained was using, it is most of the wait.
+
+      `as="fetch"` with `crossorigin` because that is what three's `FileLoader`
+      issues: a same-origin `fetch`. A preload that does not match the request it is
+      meant to serve is not a no-op, it is the file downloaded twice, so this is worth
+      being exact about — and there is a check for it in the note on `loadKit`.
+    -->
+    <link rel="preload" href="/kit/task-chair.glb" as="fetch" crossorigin />
+    <link rel="preload" href="/kit/task-chair-race.glb" as="fetch" crossorigin />
+    <link rel="preload" href="/kit/driver-facilities.glb" as="fetch" crossorigin />
+    <link rel="preload" href="/kit/driver-sales.glb" as="fetch" crossorigin />
+    <link rel="preload" href="/kit/driver-designer.glb" as="fetch" crossorigin />
+    <link rel="preload" href="/kit/driver-boss.glb" as="fetch" crossorigin />
+    <link rel="preload" href="/kit/driver-dog.glb" as="fetch" crossorigin />
+    <link rel="preload" href="/kit/driver-newone.glb" as="fetch" crossorigin />
+    <link rel="preload" href="/kit/driver-intern.glb" as="fetch" crossorigin />
     <style>
       :root { color-scheme: light dark; }
       /* The dark warm the game is graded in.
