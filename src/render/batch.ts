@@ -167,9 +167,12 @@ export type CollapseOptions = {
    * and what it costs: every level of every instance stays a separate draw. The
    * open-plan office alone is eighty-two desks and chairs out of the Blender
    * kit, and keeping their LODs was seven hundred and twelve meshes in one room
-   * — nearly half the floorplate's draw calls, and every one of them submitted
-   * twice a frame because the ambient-occlusion pass re-renders the scene for
-   * normals.
+   * — nearly half the floorplate's draw calls, and at the time every one of them
+   * was submitted three times a frame, because the ambient-occlusion and depth-of-
+   * field passes each re-rendered the whole scene to recover a G-buffer. They do
+   * not any more (see `skins/clay/post.ts`), which makes a draw call a third as
+   * expensive as it was and does not make it free: the main pass is still the
+   * largest single piece of frame time on the CPU side.
    *
    * `'high'` bakes the nearest level into the merge and throws the rest away.
    * It costs triangles, and the measurement says triangles are not what is
