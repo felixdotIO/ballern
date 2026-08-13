@@ -117,7 +117,70 @@ const DRIVE = {
    */
   boostPerAirSecond: 2.4,
   boostPerHalfTurn: 1.1,
-  maxTrickBoost: 2.6,
+  /**
+   * And per flip brought all the way over.
+   *
+   * The largest single term of the three, on purpose: the air is what the ramp
+   * gave you and the spin is nearly free, but a flip is the only one of them you
+   * can decline — and the only one that can cost you the landing. A thing you can
+   * fail has to pay more than a thing you cannot.
+   */
+  boostPerFlip: 1.4,
+  /**
+   * The ceiling, raised from 2.6 with the flips.
+   *
+   * 2.6 was set against air and spin alone, where a good jump landed on about 2.3
+   * and the cap was a backstop nobody reached. With a flip worth 1.4 on top it
+   * stopped being a backstop and started being the *whole* payout — a clean flip
+   * and a sloppy one paid the same 2.6, which is the one thing a trick system must
+   * never do. 3.8 puts the cap back above what a good jump earns and leaves it
+   * doing its original job, which is to keep a big kicker off the drift ladder's
+   * top rung. A full drift boost is still worth more.
+   */
+  maxTrickBoost: 3.8,
+
+  /*
+   * ---- flips ---------------------------------------------------------------
+   *
+   * The spin above is a *held* rotation: hold left, keep turning, and the payout
+   * counts up with the degrees. That is right for a spin, because a spin is a
+   * quantity — you can be a bit sideways. A flip is not a quantity. You either
+   * bring it all the way round or you land on your face, so it is a thing you
+   * *commit* to and then either finish or do not.
+   *
+   * So a flip is fired rather than held: one press of the throttle in the air
+   * starts a whole turn about the chair's own right axis, and it runs to
+   * completion on its own. Forward on W, backward on S, and it chains — the
+   * moment one comes round the next press starts another.
+   *
+   * Fired on the *edge* rather than on the axis, and that is the whole of why it
+   * is playable. Almost everybody goes up a ramp with the throttle pinned, and a
+   * held throttle that flipped you would mean the game punishing the one input
+   * every player already has held down. A key that is already down when the
+   * castors leave the floor is not a press. Letting go and pressing again is, and
+   * that is a gesture you can decide to make with the ramp already under you.
+   */
+  /**
+   * Rotation once a flip is under way, rad/s.
+   *
+   * 14 brings a whole turn round in 0.45 s, which is not a number picked for how
+   * it looks — it is the air a kicker on this floor actually gives. Slower and a
+   * flip is a thing you can only ever bail; much faster and it is a strobe. As it
+   * stands one flip off a standard ramp is *just* landable and two is for the big
+   * kicker in the garage, which is the right shape for a trick.
+   */
+  flipRate: 14,
+  /**
+   * How near level the seat has to be on touchdown, radians.
+   *
+   * 0.7 is 40°, which is generous, and deliberately: the rule has to be legible
+   * from inside a moving chair with a camera rolling behind it, and a tight window
+   * makes a flip a coin toss rather than a decision. It is still a real rule —
+   * land halfway round and the jump pays nothing and takes speed off you.
+   */
+  uprightWindow: 0.7,
+  /** What is left of your speed when you land one on its back. */
+  bailKeep: 0.55,
 
   /*
    * ---- being hit -----------------------------------------------------------
@@ -282,8 +345,28 @@ export type Trick = {
    * paying for.
    */
   degrees: number;
-  /** How much speed the landing paid out, m/s. */
+  /**
+   * Whole flips brought all the way round before touchdown.
+   *
+   * Counted on completion rather than as an angle, which is the difference
+   * between a flip and the spin above: a spin that is 200° round is worth 200°,
+   * and a flip that is 200° round is worth nothing at all, because it is a chair
+   * about to land on somebody's head. Only the ones that came back to level are
+   * in here, so a bail reports the flips it *did* finish and no credit for the one
+   * it was in the middle of.
+   */
+  flips: number;
+  /** How much speed the landing paid out, m/s. Zero on a bail. */
   boost: number;
+  /**
+   * Whether it came down on its castors.
+   *
+   * False means the seat was past `uprightWindow` at touchdown: no payout, and a
+   * bite taken out of the speed. Reported rather than swallowed because the screen
+   * has to say *why* a jump paid nothing, or a bail is indistinguishable from a
+   * bug.
+   */
+  clean: boolean;
 };
 
 export type Input = {
@@ -414,6 +497,33 @@ export function createChair(
   let landed: Trick | null = null;
   const right = new THREE.Vector3();
 
+  /**
+   * The flip: how far round the seat is, which way it is going, and how many it
+   * has finished this jump.
+   *
+   * `pitch` outlives the jump by a fraction of a second — it is what the mesh is
+   * drawn at, and a chair that snaps level the instant a castor touches is a chair
+   * that teleports. On touchdown it is reduced to the residual angle and eased out
+   * from there. See `sync`, which is the only thing that reads it.
+   */
+  let pitch = 0;
+  /** Which way the flip in progress is going: +1 forward, −1 back, 0 for none. */
+  let flipping = 0;
+  /** Radians still owed on the flip in progress. */
+  let flipLeft = 0;
+  let flips = 0;
+  /**
+   * The throttle as it was last step, so a flip can be fired on the press.
+   *
+   * Seeded from the input rather than from zero on take-off — see `flipRate` for
+   * why a key that was already down is not a press.
+   */
+  let lastThrottle = 0;
+  /** Scratch for `sync`: the mesh origin's offset from the body's centre. */
+  const lift = new THREE.Vector3();
+  // Heading first, then the flip about the chair's own right axis — see `sync`.
+  object.rotation.order = 'YXZ';
+
   /** Seconds of spin-out left, and the boost's remaining licence to speed. */
   let stunned = 0;
   let boostFor = 0;
@@ -527,6 +637,37 @@ export function createChair(
       // having been hit in mid-air would make the microwave a gift.
       if (stunned > 0) yaw -= DRIVE.stunSpin * h;
 
+      /*
+       * And the flip, which is the one input in this game that is a press rather
+       * than a state. See `flipRate`: a throttle that is *already* held when the
+       * castors leave the floor is not a press, so this compares against the last
+       * step rather than against zero, and a player who went up the ramp pinned
+       * has to let go and ask for it.
+       *
+       * Only one at a time. A second press while one is still coming round is
+       * ignored rather than queued — queueing means a mashed key spends the whole
+       * jump owing you flips you cannot see, and then you land on your back
+       * wondering what you did.
+       */
+      const press = Math.sign(input.throttle);
+      if (flipping === 0 && press !== 0 && press !== Math.sign(lastThrottle) && stunned <= 0) {
+        flipping = press;
+        flipLeft = Math.PI * 2;
+      }
+      if (flipping !== 0) {
+        const step = Math.min(flipLeft, DRIVE.flipRate * h);
+        pitch += flipping * step;
+        flipLeft -= step;
+        if (flipLeft <= 0) {
+          flips++;
+          flipping = 0;
+          // Landed back on the exact angle it started from, rather than a whole
+          // turn away from it, so a chain of flips cannot drift the seat off level
+          // by an accumulated rounding error over four of them.
+          pitch = Math.round(pitch / (Math.PI * 2)) * Math.PI * 2;
+        }
+      }
+
       telemetry.impact = 0;
       telemetry.along = along;
       right.set(-fwd.z, 0, fwd.x);
@@ -535,27 +676,64 @@ export function createChair(
       telemetry.airborne = true;
       telemetry.air = air;
 
+      lastThrottle = input.throttle;
       body.setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) }, true);
       return;
     }
 
+    lastThrottle = input.throttle;
+
     // Down. Anything worth calling a jump pays out here, once.
     if (air > 0) {
+      /*
+       * How far off level the seat came down, once the whole turns are taken out.
+       *
+       * A flip finished is a flip that put the chair back exactly where it started,
+       * so a clean three-flip landing wraps to zero and a bail wraps to however far
+       * round it got. Which is the only question worth asking on touchdown.
+       */
+      const level = Math.atan2(Math.sin(pitch), Math.cos(pitch));
+      const clean = Math.abs(level) <= DRIVE.uprightWindow;
+
       // A landing does not pay while you are still spinning out of a hit. It is
       // the same rule as above and the same reason.
       if (air >= DRIVE.trickAir && stunned <= 0) {
         const degrees = (spun * 180) / Math.PI;
-        const boost = Math.min(
-          DRIVE.maxTrickBoost,
-          air * DRIVE.boostPerAirSecond + (degrees / 180) * DRIVE.boostPerHalfTurn,
-        );
-        along += boost * Math.sign(along || 1);
-        landed = { air, degrees, boost };
+        if (clean) {
+          const boost = Math.min(
+            DRIVE.maxTrickBoost,
+            air * DRIVE.boostPerAirSecond +
+              (degrees / 180) * DRIVE.boostPerHalfTurn +
+              flips * DRIVE.boostPerFlip,
+          );
+          along += boost * Math.sign(along || 1);
+          landed = { air, degrees, flips, boost, clean: true };
+        } else {
+          // Landed on its back. No payout, and a bite out of the speed — which is
+          // the whole reason a flip is a decision rather than a free press: the
+          // ramp is worth more than the flat line only if you bring it round.
+          along *= DRIVE.bailKeep;
+          landed = { air, degrees, flips, boost: 0, clean: false };
+        }
       }
       air = 0;
       spun = 0;
+      flips = 0;
+      flipping = 0;
+      flipLeft = 0;
+      // The whole turns go, the residual stays and is eased out below, so the seat
+      // settles back onto its castors instead of snapping level on the frame a
+      // castor touched.
+      pitch = level;
       telemetry.airborne = false;
       telemetry.air = 0;
+    }
+
+    // Settling out of whatever the landing left. Fast — this is a chair dropping
+    // the last few degrees onto its castors, not an animation.
+    if (pitch !== 0) {
+      pitch *= Math.pow(0.0002, h);
+      if (Math.abs(pitch) < 1e-4) pitch = 0;
     }
 
     // What the slope is doing, before anything else asks how fast the chair may
@@ -688,10 +866,35 @@ export function createChair(
     body.setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) }, true);
   }
 
+  /**
+   * Put the mesh where the body is, and at whatever angle the flip has it.
+   *
+   * The pitch lives here and nowhere else: the solver's body stays a capsule that
+   * only ever turns about Y, because a chair that could really tip is a chair that
+   * catches a corner on a doorframe and ends the race on its side. What flips is
+   * the *picture* — which is the same bargain the whole driving model makes, and
+   * it holds for the same reason: nothing about a flip needs to be collided with.
+   *
+   * `YXZ` so `.rotation.y` stays the plain heading whatever the pitch is doing.
+   * Half the game reads that number — the chase camera, the taxiway sign, the
+   * trail an item is dragged on — and every one of them wants the yaw rather than
+   * a component of some composed angle.
+   */
   function sync(): void {
     const p = body.translation();
-    object.position.set(p.x, p.y - CENTRE_Y, p.z);
-    object.rotation.y = yaw;
+    object.rotation.set(pitch, yaw, 0);
+    /*
+     * And it turns about the seat, not about the castors.
+     *
+     * The mesh's origin is on the floor between the wheels, so a pitch written
+     * straight onto it swings the whole chair around a point on the ground —
+     * which is a chair being pushed over, not a chair being flipped. The body's
+     * own centre is `CENTRE_Y` above that origin, so the origin is put wherever
+     * rotating about the centre sends it. At zero pitch this is exactly the
+     * subtraction it replaces.
+     */
+    lift.set(0, -CENTRE_Y, 0).applyQuaternion(object.quaternion);
+    object.position.set(p.x + lift.x, p.y + lift.y, p.z + lift.z);
   }
 
   return {
@@ -744,7 +947,11 @@ export function createChair(
       pendingZ += dz * speed;
     },
     reset() {
-      this.place(spawn.position[0], spawn.position[2], spawn.yaw, 0);
+      // The spawn's own floor, passed through rather than defaulted to zero. Both
+      // are the hall and both are the same number today, which is exactly why it
+      // is worth writing: this and the menu's own `stage(false)` are two routes to
+      // one grid slot, and for a long time they disagreed about how high it was.
+      this.place(spawn.position[0], spawn.position[2], spawn.yaw, 0, spawn.position[1]);
     },
     place(x, z, heading, speed = 0, y = 0) {
       body.setTranslation({ x, y: y + CENTRE_Y, z }, true);
@@ -755,9 +962,15 @@ export function createChair(
       charge = 0;
       boosting = false;
       // A chair put back on the grid is not mid-jump, and must not pay out for
-      // the one it was on when the race was restarted.
+      // the one it was on when the race was restarted — nor arrive halfway
+      // through the flip it was in the middle of.
       air = 0;
       spun = 0;
+      pitch = 0;
+      flipping = 0;
+      flipLeft = 0;
+      flips = 0;
+      lastThrottle = 0;
       landed = null;
       telemetry.airborne = false;
       telemetry.air = 0;

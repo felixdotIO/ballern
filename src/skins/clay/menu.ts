@@ -281,6 +281,19 @@ const CSS = `
   color: var(--paper-2);
   max-width: 46ch;
 }
+/*
+ * The last line of the memo, which is the only one anybody has to remember.
+ *
+ * Full paper rather than the body's 68%, and that is the whole of the styling: the
+ * page is three paragraphs of dry office prose and then a sentence about it being
+ * the last time. Bringing it up to the headline's weight lets the eye find it after
+ * skimming, which is what everybody does with a page of text in front of a race.
+ */
+#menu .briefing p.sting {
+  color: var(--paper);
+  font-size: 16.5px;
+  margin-top: 18px;
+}
 #menu .briefing h3 {
   margin: 22px 0 0;
   font-size: 12px;
@@ -833,20 +846,22 @@ export function createMenu(hooks: MenuHooks): Menu {
   const briefing = el('div', 'briefing');
   const sheet = el('div', 'sheet');
   sheet.innerHTML = `
-    <div class="kicker">Level 6 · Internal Memo</div>
-    <h2 class="hd">Why we are doing this</h2>
-    <p>The lease on Level&nbsp;6 ends on Friday. The movers come Monday. Until then the
-       floor belongs to whoever is still standing on it, and nobody has booked the
-       meeting rooms since March.</p>
-    <p>It started at the Sommerfest, when Facilities bet the Boss he could not get a
-       task chair from Reception to the Teeküche without putting a foot down. He could.
-       Sales timed it. By the following week there was a route; by the week after there
-       were rules, because Sales went through the canteen and everyone agreed that did
-       not count.</p>
-    <p>So: three laps of the floor, the Parkdeck and Ebene&nbsp;5, past every desk you
-       have ever sat at. The colleagues came down to watch, and they stand in the places
-       where people used to cut the corner. Take the whole route. It is the last week
-       anyone will.</p>
+    <div class="kicker">Level 6 · Internal memo · Please do not forward</div>
+    <h2 class="hd">Three laps. One mug.</h2>
+    <p>It started at the Sommerfest. Facilities bet the boss a crate of Sprudel that
+       nobody could get a task chair from Reception to the Teeküche without putting a
+       foot down. The boss did it in forty seconds. On carpet. Holding a plate.</p>
+    <p>By Wednesday there was a route. By Friday there were rules, because the sales
+       guy went through the canteen and everybody agreed that did not count. There is
+       a timekeeper now. There is a trophy, and the trophy is the mug from the third
+       kitchen — <b>WORLD&rsquo;S OKAYEST EMPLOYEE</b> — and seven people have booked
+       the afternoon off to win it.</p>
+    <p>The lease ends Friday. The movers come Monday. Until then Level&nbsp;6 is not an
+       office, it is a circuit: three laps through every room you have ever sat in, out
+       onto the Parkdeck, down through Ebene&nbsp;5 and back past your own desk. Your
+       colleagues came down to watch. They are standing exactly where people used to
+       cut the corner.</p>
+    <p class="sting">Drive the whole thing. Nobody gets to drive it again.</p>
 
     <h3>Driving</h3>
     <dl>
@@ -855,6 +870,17 @@ export function createMenu(hooks: MenuHooks): Menu {
         levels, and the third takes a whole corner to earn</dd>
       <dt>R</dt><dd>back to the grid</dd>
       <dt>Esc</dt><dd>this screen</dd>
+    </dl>
+
+    <h3>In the air</h3>
+    <p>Every ramp pays out on the landing: for the hang time, for how far round you
+       got, and for anything you brought all the way over. Land on the castors. Land
+       on the backrest and you get nothing and lose half your speed.</p>
+    <dl>
+      <dt>A D</dt><dd>spin, once the castors are off the floor</dd>
+      <dt>Tap W or S</dt><dd>flip forwards or backwards — it goes the whole way round
+        on its own, and you can chain another the moment it lands. A throttle you were
+        already holding up the ramp is not a trick: let go of it and ask</dd>
     </dl>
 
     <h3>Piñatas</h3>

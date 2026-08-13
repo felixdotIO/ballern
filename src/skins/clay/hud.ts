@@ -219,6 +219,16 @@ const CSS = `
 #hud .air .score { display: block; margin-top: 2px; font-size: 15px; color: var(--paper-2); }
 #hud .air.landed .time { color: var(--pink); }
 #hud .air.landed .score { color: var(--amber); }
+/*
+ * And the one that went wrong, which has to read as wrong at a glance.
+ *
+ * A bail is the only thing this HUD ever reports as a *failure*, and it gets no
+ * colour of its own: the amber and the pink are what the screen says when
+ * something went well, so the quickest way to say it did not is to take the
+ * colour away and let the word carry it.
+ */
+#hud .air.bailed .time { color: var(--paper-3); }
+#hud .air.bailed .score { color: var(--paper); letter-spacing: 0.18em; }
 
 /* -- the result, which is a table and so gets a ground --------------------- */
 
@@ -554,14 +564,22 @@ export function createClayHud(): ClayHud {
       // score for the one you just landed before you have read it.
       if (trick) {
         trickFor = 1.5;
-        air.classList.add('landed');
+        air.classList.toggle('landed', trick.clean);
+        air.classList.toggle('bailed', !trick.clean);
         airText = trick.air.toFixed(2);
         airTime_(airText);
         // Rotation only when there was some worth mentioning. Below about a
         // quarter turn it is a correction rather than a trick, and printing "12°"
         // on every hop makes the whole readout look like instrumentation noise.
         const turn = trick.degrees >= 60 ? `${Math.round(trick.degrees / 15) * 15}\u00b0 \u00b7 ` : '';
-        airScore.textContent = `${turn}+${trick.boost.toFixed(1)} m/s`;
+        // Flips first, because a flip is the thing you *decided* to do — the air
+        // and the spin are mostly what the ramp handed you. And on a bail there is
+        // no figure at all, because the figure is nothing: what the card has to say
+        // is which mistake it was, and there is only one way to bail a flip.
+        const flip = trick.flips > 0 ? `${trick.flips > 1 ? `${trick.flips}× ` : ''}FLIP · ` : '';
+        airScore.textContent = trick.clean
+          ? `${flip}${turn}+${trick.boost.toFixed(1)} m/s`
+          : 'BAILED';
         setHidden(airScore, false);
         setHidden(air, false);
       } else if (trickFor > 0) {
@@ -570,6 +588,7 @@ export function createClayHud(): ClayHud {
         if (trickFor <= 0) {
           setHidden(air, true);
           air.classList.remove('landed');
+          air.classList.remove('bailed');
           setHidden(airScore, true);
         }
       } else if (airTime > 0.12) {

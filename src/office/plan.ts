@@ -924,8 +924,22 @@ export const BAYS: {
  * declaration is above `ROUTE` and half the building is built off it — but they
  * are exactly `slotAt(PLAYER_SLOT)` and `GRID_YAW`, and if the line ever moves,
  * those are what to re-evaluate.
+ *
+ * The middle number is the *floor* the slot stands on, which is the hall's, which
+ * is zero — the same thing `SHOWROOM` says a few lines down and for the same
+ * reason. It read 0.6 for a long time, and 0.6 is not a floor anywhere in this
+ * building: it is about the height of a chair's own centre, written back when
+ * something else was adding the castors on. What it meant in the end was that
+ * `chair.place` put the player 600 mm above the granite on the way out of the
+ * menu, so every race opened with the chair *falling* — a third of a second of
+ * air, an air card up over the countdown, and a bump on the grid before the flag.
+ * Long enough to see, too short to name.
+ *
+ * `chair.reset()` never had the fault, because it does not pass a floor at all and
+ * so got the right answer by accident. That is why R put you on the grid cleanly
+ * and Start did not.
  */
-export const SPAWN = { position: [64.483, 0.6, 37.652] as const, yaw: 1.67046 };
+export const SPAWN = { position: [64.483, LEVELS.floor, 37.652] as const, yaw: 1.67046 };
 
 /**
  * Where the character select is shot: down on Ebene 5, in the east lane.
