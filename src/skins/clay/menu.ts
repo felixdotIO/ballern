@@ -86,7 +86,8 @@ export type MenuHooks = {
     state(): RoomView | null;
     name(): string;
     setName(name: string): void;
-    create(): string;
+    /** Make a room with a code of the system's choosing, and join it. */
+    create(): void;
     join(code: string): void;
     leave(): void;
     setReady(ready: boolean): void;
@@ -359,7 +360,7 @@ const CSS = `
   border: 1px solid rgba(255,255,255,.16); border-radius: 6px;
   padding: 9px 11px; font: 600 15px/1 ${FAMILY}; letter-spacing: .04em;
 }
-#menu .lobby input:focus { outline: none; border-color: var(--signal); }
+#menu .lobby input:focus { outline: none; border-color: var(--hot); }
 #menu .lobby input.code { text-transform: uppercase; letter-spacing: .3em; max-width: 150px; }
 #menu .lobby .acts { display: flex; gap: 10px; flex-wrap: wrap; margin: 16px 0 4px; }
 #menu .lobby button {
@@ -367,8 +368,21 @@ const CSS = `
   border: 1px solid rgba(255,255,255,.18); border-radius: 6px; padding: 9px 16px;
   font: 700 12px/1 ${FAMILY}; letter-spacing: .12em; text-transform: uppercase;
 }
-#menu .lobby button.go { background: var(--signal); border-color: var(--signal); color: #12100e; }
+#menu .lobby button.go { background: var(--hot); border-color: var(--hot); color: var(--ink); }
 #menu .lobby button:disabled { opacity: .35; cursor: default; }
+#menu .lobby .field button { flex: 0 0 auto; }
+#menu .lobby .share {
+  display: flex; align-items: center; gap: 12px; margin: 16px 0 4px;
+  padding: 12px 14px; border-radius: 8px; background: rgba(0,0,0,.28);
+  border: 1px solid rgba(255,255,255,.14);
+}
+#menu .lobby .share .lbl {
+  font: 600 11px/1 ${FAMILY}; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--paper-2);
+}
+#menu .lobby .share .shown {
+  flex: 1; font: 800 30px/1 ${FAMILY}; letter-spacing: .3em; color: var(--hot);
+}
 #menu .lobby .seats { list-style: none; margin: 14px 0 0; padding: 0; }
 #menu .lobby .seats li {
   display: flex; align-items: center; gap: 11px; padding: 7px 0;
@@ -380,7 +394,7 @@ const CSS = `
   font: 700 10px/1 ${FAMILY}; letter-spacing: .12em; text-transform: uppercase;
   color: var(--paper-2);
 }
-#menu .lobby .seats .tag.set { color: var(--signal); }
+#menu .lobby .seats .tag.set { color: var(--hot); }
 #menu .lobby .note { color: var(--paper-2); font: 400 13px/1.5 ${FAMILY}; margin: 12px 0 0; }
 #menu .lobby .bad { color: #e8705a; }
 #menu .briefing .dismiss {
@@ -913,7 +927,6 @@ export function createMenu(hooks: MenuHooks): Menu {
   const briefing = el('div', 'briefing');
   const sheet = el('div', 'sheet');
   sheet.innerHTML = `
-    <div class="kicker">Level 6 · Internal memo · Please do not forward</div>
     <h2 class="hd">Three laps. One mug.</h2>
     <p>It started at the Sommerfest. Facilities bet the boss a crate of Sprudel that
        nobody could get a task chair from Reception to the Teeküche without putting a
@@ -980,20 +993,32 @@ export function createMenu(hooks: MenuHooks): Menu {
   const lobby = el('div', 'briefing lobby');
   const lobbySheet = el('div', 'sheet');
   lobbySheet.innerHTML = `
-    <div class="kicker">Level 6 · Multiplayer · Beta</div>
     <h2 class="hd">Get a room.</h2>
     <p>Up to five chairs. Whoever does not turn up is driven by the office.</p>
     <div class="field"><label for="lb-name">Name</label><input id="lb-name" maxlength="14" placeholder="who are you"></div>
-    <div class="field"><label for="lb-code">Room</label><input id="lb-code" class="code" maxlength="4" placeholder="ABCD"></div>
-    <div class="acts">
-      <button data-act="create">Create a room</button>
-      <button data-act="join">Join</button>
-      <button data-act="ready">Ready</button>
-      <button data-act="start" class="go">Start race</button>
-      <button data-act="leave">Leave</button>
+    <div class="outside">
+      <div class="acts"><button data-act="create" class="go">Create a room</button></div>
+      <div class="field">
+        <label for="lb-code">Got a code?</label>
+        <input id="lb-code" class="code" maxlength="4" placeholder="ABCD" autocomplete="off" spellcheck="false">
+        <button data-act="join">Join</button>
+      </div>
+    </div>
+    <div class="inside">
+      <div class="share">
+        <span class="lbl">Room code</span><b class="shown"></b>
+        <button data-act="copy">Copy</button>
+      </div>
     </div>
     <ul class="seats"></ul>
     <p class="note"></p>
+    <div class="inside">
+      <div class="acts">
+        <button data-act="ready">Ready</button>
+        <button data-act="start" class="go">Start race</button>
+        <button data-act="leave">Leave</button>
+      </div>
+    </div>
     <div class="dismiss">Esc to go back</div>`;
   lobby.append(lobbySheet);
 
@@ -1001,6 +1026,9 @@ export function createMenu(hooks: MenuHooks): Menu {
   const codeInput = lobbySheet.querySelector('#lb-code') as HTMLInputElement;
   const seatList = lobbySheet.querySelector('.seats') as HTMLElement;
   const note = lobbySheet.querySelector('.note') as HTMLElement;
+  const outside = lobbySheet.querySelector('.outside') as HTMLElement;
+  const insides = [...lobbySheet.querySelectorAll('.inside')] as HTMLElement[];
+  const shown = lobbySheet.querySelector('.shown') as HTMLElement;
   const act = (name: string): HTMLButtonElement =>
     lobbySheet.querySelector(`[data-act="${name}"]`) as HTMLButtonElement;
 
@@ -1011,14 +1039,25 @@ export function createMenu(hooks: MenuHooks): Menu {
     const view = hooks.room.state();
     const inRoom = !!view;
 
-    act('create').disabled = inRoom;
-    act('join').disabled = inRoom || codeInput.value.trim().length !== 4;
-    act('ready').disabled = !inRoom;
-    act('leave').disabled = !inRoom;
-    // Only the host may start, and only once there is a room to start. One person in
-    // a room is a legal race — four rails and you — so there is no minimum beyond it.
-    act('start').disabled = !view?.isHost;
+    /*
+     * Two states, and only one of them on screen at a time.
+     *
+     * Out of a room you either make one or are given one; in a room the only thing
+     * that matters is the code, because the code is the thing you have to get to
+     * somebody else. Showing both at once was what made the old arrangement read as
+     * "invent a room name", which is not what a room code is.
+     */
+    outside.style.display = inRoom ? 'none' : '';
+    // Two of them: the code sits above the roster and the buttons below it, because
+    // the code and who is in the room are what a lobby is *for* — the buttons are
+    // how you leave it. On a short window the important half is the half on screen.
+    for (const part of insides) part.style.display = inRoom ? '' : 'none';
+
+    act('join').disabled = codeInput.value.trim().length !== 4;
+    // Only the host may start. One person in a room is a legal race — four rails and
+    // you — so there is no minimum beyond that.
     act('start').style.display = view?.isHost ? '' : 'none';
+    if (inRoom) shown.textContent = view.code;
 
     const me = view?.members.find((m) => m.id === view.you);
     act('ready').textContent = me?.ready ? 'Not ready' : 'Ready';
@@ -1072,11 +1111,31 @@ export function createMenu(hooks: MenuHooks): Menu {
     if (!button || button.disabled) return;
     switch (button.dataset.act) {
       case 'create':
-        codeInput.value = hooks.room.create();
+        // The room hands out its own code and joins on the spot. It used to fill the
+        // field and wait for a second click, which asked the player to confirm a
+        // string they had no say in and could not have wanted to change.
+        hooks.room.create();
         break;
       case 'join':
         hooks.room.join(codeInput.value.trim().toUpperCase());
         break;
+      case 'copy': {
+        const code = hooks.room.state()?.code;
+        if (!code) break;
+        void navigator.clipboard?.writeText(code).then(
+          () => {
+            button.textContent = 'Copied';
+            setTimeout(() => (button.textContent = 'Copy'), 1400);
+          },
+          () => {
+            // Clipboard refused — no permission, or an insecure origin. Say so rather
+            // than silently doing nothing; the code is on screen to be read out.
+            button.textContent = 'Copy failed';
+            setTimeout(() => (button.textContent = 'Copy'), 1400);
+          },
+        );
+        break;
+      }
       case 'ready': {
         const view = hooks.room.state();
         hooks.room.setReady(!view?.members.find((m) => m.id === view.you)?.ready);

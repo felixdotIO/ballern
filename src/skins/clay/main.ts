@@ -958,7 +958,9 @@ const menu = createMenu({
     setName: (value) => {
       playerName = value;
     },
-    create: () => newRoomCode(),
+    // Generates a code and joins it in one go: the player is never asked to pick or
+    // confirm one, because a room code is an address they are given, not a name.
+    create: () => enterRoom(newRoomCode()),
     join: (code) => enterRoom(code),
     leave: () => leaveRoom(),
     setReady: (ready) => room?.setReady(ready),
