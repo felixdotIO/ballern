@@ -52,8 +52,15 @@ import { createQuality } from '../../render/quality';
 import { driver as kitDriver, loadKit, raceChair, type DriverKey } from '../../render/kit';
 import { createLightPool } from '../../render/lights';
 import { createRoutePath } from './routePath';
-import { createRivals, FIELD_SIZE } from '../../game/rivals';
-import { PLAYER_SLOT, progressOnGrid } from '../../game/grid';
+import { createRivals, MAX_RIVALS } from '../../game/rivals';
+import {
+  GRID_SLOTS,
+  GRID_YAW,
+  PLAYER_SLOT,
+  progressOnGrid,
+  slotAt,
+  type GridSlot,
+} from '../../game/grid';
 import { createRouteAim } from './routeAim';
 import { createClayLighting } from './lighting';
 import { createClayPost } from './post';
@@ -63,7 +70,17 @@ import { createMenu } from './menu';
 import { createGarage, RIDE_BUILDERS, RIDERS, RIDES } from './garage';
 import { shoot } from './portraits';
 import { makeRng, seedFrom } from '../../office/rng';
-import { createItemPlay, type Racer } from '../../game/items';
+import { createItemPlay } from '../../game/items';
+import { IDLE_ACTOR, type Seat, type SeatActor } from '../../game/seat';
+import {
+  joinRoom,
+  MULTIPLAYER_AVAILABLE,
+  newRoomCode,
+  type Room,
+  type RoomHandlers,
+} from '../../net/room';
+import { createProxies, type Proxies } from '../../net/proxy';
+import { POSE_HZ } from '../../net/protocol';
 import { createProjectiles, type ItemArt, type ItemEffects } from '../../game/projectiles';
 import { createPinatas } from './pinatas';
 import { createItemHud } from './itemHud';
@@ -189,7 +206,80 @@ const physics = await createPhysics([...shell.collision, ...dressing.collision, 
 const dynamics = createDynamics(physics.world, dressing.dynamic);
 scene.add(dynamics.root);
 
-const chair = createChair(physics, shell.spawn);
+/*
+ * ---- who is in which seat -------------------------------------------------
+ *
+ * Five seats and five grid slots, and until now the answer was so obvious it was
+ * never written down: the person was seat 0 and stood on the back slot, and the
+ * computer was seats 1-4 on slots 0-3. That fact was spelled three different ways
+ * across this file — an `id === 0` to pick the chair over a rival, an `id - 1` to
+ * turn a seat into a rail, and `GRID[i]` inside `rivals.ts` to place one.
+ *
+ * Written down once, it is three small tables. The seat a person is in, the grid
+ * slot each seat starts from, and which seats the computer drives — everything else
+ * in this file reads those rather than assuming. In a solo race they say exactly
+ * what the old constants did, which is the point: this is the same arrangement,
+ * named, so that a room can hand over a different one.
+ */
+
+/**
+ * How many people are on the grid, and which one is at this keyboard.
+ *
+ * Solo is one person, and the arrangement it gets is the one the game has always
+ * had: the back slot, with the computer on the four in front. That is not a default
+ * falling out of the arithmetic, it is a decision — see `PLAYER_SLOT` — and it stays
+ * true whatever a room does.
+ *
+ * A room deals differently. Everybody takes a slot in the order they joined, so the
+ * humans are the front of the grid and the computer fills in behind, and the person
+ * at this keyboard is wherever the room put them.
+ */
+let humanSeats: number[] = [0];
+let localSeat = 0;
+let seatSlots: GridSlot[] = [PLAYER_SLOT, ...GRID_SLOTS.slice(0, MAX_RIVALS)];
+let railSeats: number[] = [1, 2, 3, 4];
+/** Seats driven by another person, over the wire. Empty in a solo race. */
+let proxySeats: number[] = [];
+
+/** The seat a rail drives, and the rail driving a seat. −1 if nothing is. */
+const seatOfRail = (rail: number): number => railSeats[rail] ?? -1;
+const railOfSeat = (seat: number): number => railSeats.indexOf(seat);
+
+/**
+ * Where the local chair lines up: its own slot, computed.
+ *
+ * `plan.ts` writes `SPAWN` out as `slotAt(PLAYER_SLOT)` already evaluated — it has
+ * to, because that declaration sits above `ROUTE` and half the building is built off
+ * it — and both this and `stage(false)` used to take it as "where the person
+ * starts". That is the same number only for as long as the person is the one on the
+ * back slot, and in a room they are not: dealing seats means every chair starts from
+ * a slot worked out at runtime.
+ *
+ * Doing this is what turned up the grid deadlock in `rivals.ts` — see
+ * `TRAFFIC.touching`, which is the fix. `SPAWN` rounded to three decimals lands a
+ * third of a millimetre on one side of the start line's projection and the computed
+ * slot lands on the other, and the field used to care enormously about which. It no
+ * longer does, and this can be the honest number.
+ *
+ * The floor comes from `SPAWN` because that is a fact about the hall rather than
+ * about the slot, and `slotAt` only answers in plan.
+ */
+function slotSpawn(slot: GridSlot): { position: readonly [number, number, number]; yaw: number } {
+  const [x, z] = slotAt(slot);
+  return { position: [x, shell.spawn.position[1], z], yaw: GRID_YAW };
+}
+
+/**
+ * A function rather than a value, because the slot can change between races.
+ *
+ * `chair.reset()` goes back to whatever spawn the chair was *constructed* with, so
+ * everything that puts the player on the grid calls `chair.place` off this instead.
+ * In a solo race it is the same slot every time and the distinction never shows.
+ */
+const localSpawn = (): { position: readonly [number, number, number]; yaw: number } =>
+  slotSpawn(seatSlots[localSeat]!);
+
+const chair = createChair(physics, slotSpawn(seatSlots[localSeat]!));
 scene.add(chair.object);
 
 
@@ -265,7 +355,7 @@ useDriver(RIDERS[0]!.key);
  * driver by writing colours into the material instances the asset owns; without a
  * private copy per rival, dressing the Boss would dress the player too.
  */
-const rivalRigs = Array.from({ length: FIELD_SIZE }, (_, slot) => {
+const rivalRigs = Array.from({ length: railSeats.length }, (_, slot) => {
   const rng = makeRng(seedFrom(`rival.slot.${slot}`));
   const chairBody = raceChair(rng).group;
   scene.add(chairBody);
@@ -281,15 +371,25 @@ const rivalRigs = Array.from({ length: FIELD_SIZE }, (_, slot) => {
   };
 });
 
-const rivals = createRivals(physics, lapPath, LAPS, rivalRigs.map((r) => r.object));
+const rivals = createRivals(
+  physics,
+  lapPath,
+  LAPS,
+  rivalRigs.map((r) => r.object),
+  railSeats.map((seat) => seatSlots[seat]!),
+);
 
 /**
- * Put everyone the player did not pick on the grid.
+ * Put everyone nobody picked on the grid.
  *
  * The field is defined by subtraction, which is the whole of what makes it feel
  * like a cast rather than a set of opponents: pick the boss and you are racing the
  * other six's fastest four, and the boss is not also sitting behind you in his own
  * chair. Run at startup and on every change of driver.
+ *
+ * A set of taken riders rather than the one index it used to be, because in a room
+ * every person takes one out of the roster and the computer gets what is left. The
+ * roster is seven and the grid is five, so there is always enough to go round.
  *
  * Each slot is seated by *replacing* its figure, for the same reason the player's
  * is — a character is an asset, not a colourway — and each new figure gets its own
@@ -297,7 +397,7 @@ const rivals = createRivals(physics, lapPath, LAPS, rivalRigs.map((r) => r.objec
  * every time for a given choice, which is what lets a player learn that Facilities
  * on the front row is quick.
  */
-function fieldAgainst(picked: number): void {
+function fieldAgainst(taken: ReadonlySet<number>): void {
   /*
    * The field, slowest at the front.
    *
@@ -313,8 +413,8 @@ function fieldAgainst(picked: number): void {
    * carving their own way up the road ahead in plain sight. That is the difficulty
    * ramp a five-minute race wants, and it costs one `sort`.
    */
-  const others = RIDERS.filter((_, i) => i !== picked)
-    .slice(0, FIELD_SIZE)
+  const others = RIDERS.filter((_, i) => !taken.has(i))
+    .slice(0, railSeats.length)
     .sort((a, b) => a.pace - b.pace);
   rivals.setDrivers(others.map((r) => ({ label: r.label, pace: r.pace, drive: r.drive })));
 
@@ -327,6 +427,23 @@ function fieldAgainst(picked: number): void {
     rig.figure = figure;
     rig.rig = bindDriver(figure);
   });
+}
+
+/**
+ * Reseat the field from whoever is currently spoken for.
+ *
+ * One line today — the only person on the grid is the one at this keyboard — and
+ * the single place that has to learn about the others later. Both call sites went
+ * through `garage.rider` directly before, which is the sort of thing that gets
+ * missed exactly once.
+ */
+function refreshField(): void {
+  // Everybody in the room takes a character out of the roster, not just the person at
+  // this keyboard — otherwise the computer turns up driving somebody who is already
+  // on the grid. Solo this is the one pick it always was.
+  const taken = new Set<number>([garage.rider]);
+  for (const member of room?.members ?? []) taken.add(member.rider);
+  fieldAgainst(taken);
 }
 
 const camera = new THREE.PerspectiveCamera(58, 1, 0.1, 1600);
@@ -385,6 +502,16 @@ let onGrid = true;
 const onTrack = new THREE.Vector3();
 const player = { progress: 0, lane: 0, speed: 0 };
 
+/**
+ * Everybody on the grid the computer is not driving, which is what the field races.
+ *
+ * One entry today and the same object `readPlayer` fills in, so nothing about the
+ * cost or the behaviour changes. It is a list because `rivals.update` now takes one:
+ * a rail has to treat every person as traffic and rubber-band against the nearest,
+ * and with a single element both of those are the numbers they always were.
+ */
+const humans: (typeof player)[] = [player];
+
 function readPlayer(): void {
   player.progress = playerProgress;
   player.speed = chair.speed();
@@ -400,7 +527,10 @@ function trackPlayer(): void {
     const past = progressOnGrid(chair.object.position.x, chair.object.position.z);
     // Driven distance, on the same scale as the field's: zero on the slot, and the
     // slot's own depth of it banked by the time the line goes under the castors.
-    playerProgress = PLAYER_SLOT.back + past;
+    // Off *this* seat's slot rather than off the back one, which is the same number
+    // in a solo race and the whole grid handicap in a shared one — the identical
+    // arithmetic `rivals.ts` does with `state.grid.back`, for the identical reason.
+    playerProgress = seatSlots[localSeat]!.back + past;
     if (past < 0) {
       playerS = 0;
       return;
@@ -431,28 +561,24 @@ function trackPlayer(): void {
  * pickup in the clay band is a pickup nobody can see.
  */
 
-/**
- * A chair, as the item rules see one. Index 0 is the player.
+/*
+ * A chair, as the item rules see one — see `game/seat.ts`, which is where the type
+ * lives now that more than this file needs it.
  *
  * One flat list rather than "the player, and also the rivals", which is the whole
- * trick: a rival's `progress` and the player's are already the same quantity on the
+ * trick: a rival's `progress` and a person's are already the same quantity on the
  * same scale, so targeting, standings and every hit test are one comparison over
  * five identical records. Nothing in `items.ts` or `projectiles.ts` knows which of
  * them is being driven by a person.
  */
-type Seat = { -readonly [K in keyof Racer]: Racer[K] } & { position: THREE.Vector3 };
-
-const seats: Seat[] = [
-  { id: 0, position: new THREE.Vector3(), yaw: 0, progress: 0, stunned: 0, finished: false },
-  ...rivals.all.map((_, i) => ({
-    id: i + 1,
-    position: new THREE.Vector3(),
-    yaw: 0,
-    progress: 0,
-    stunned: 0,
-    finished: false,
-  })),
-];
+const seats: Seat[] = seatSlots.map((_, id) => ({
+  id,
+  position: new THREE.Vector3(),
+  yaw: 0,
+  progress: 0,
+  stunned: 0,
+  finished: false,
+}));
 
 const itemHud = createItemHud();
 const rush = createRush();
@@ -479,8 +605,63 @@ let impactThisFrame = 0;
 const itemPlay = createItemPlay({
   size: seats.length,
   rng: Math.random,
+  human: (id) => id === localSeat,
   fire: (kind, owner, backwards) => projectiles.fire(kind, owner, backwards),
 });
+
+/**
+ * What an item does to the chair on this screen.
+ *
+ * The only actor that has an interface as well as a body, and that is the whole of
+ * what makes it different from a rail: a spin-out is a thing that happens to the
+ * simulation *and* a thing the player has to be told about.
+ */
+const localActor: SeatActor = {
+  stun(seconds, kind) {
+    chair.stun(seconds);
+    // The module blocks the screen for exactly as long as the spin-out, which is
+    // the one place where the interface and the simulation have to agree to the
+    // frame: a card that outlasts the stun is a card you sit behind while
+    // driving, and one that ends early is a punishment with a seam in it.
+    if (kind === 'training') itemHud.module(seconds);
+  },
+  push: (speed, hold) => chair.push(speed, hold),
+  shove: (dx, dz, speed) => chair.shove(dx, dz, speed),
+  blind: (seconds) => itemHud.blind(seconds),
+};
+
+/**
+ * A chair the computer is driving.
+ *
+ * `shove` is missing on purpose rather than by omission: a rival is a distance
+ * along the route plus a lane offset and has nowhere to be shoved to — see the note
+ * on `stun` in `rivals.ts`. It inherits the no-op from `IDLE_ACTOR`, which is the
+ * same nothing that used to happen when this file was the one deciding not to call
+ * it, only now the decision is written where the reason is.
+ */
+const railActor = (rail: number): SeatActor => ({
+  ...IDLE_ACTOR,
+  stun: (seconds) => rivals.stun(rail, seconds),
+  push: (speed, hold) => rivals.push(rail, speed, hold),
+  blind: (seconds) => rivals.blind(rail, seconds),
+});
+
+/**
+ * Who is in each seat, as the four things that can be done to them.
+ *
+ * This table is what replaced the `id === 0` / `id - 1` demux, and it is worth
+ * saying what that bought beyond tidiness: those two tests encoded *three* separate
+ * facts — that the person is seat 0, that rails are the rest, and that seat n is
+ * rail n−1 — in a form where none of them could be changed without finding all of
+ * the others. Here there is one array and the facts are its contents.
+ *
+ * It is also exactly where a network goes. Applying an effect that arrived off the
+ * wire and applying one resolved here are the same four calls on the same table;
+ * only which entry is which changes.
+ */
+const actors: SeatActor[] = seats.map((seat) =>
+  seat.id === localSeat ? localActor : railActor(railOfSeat(seat.id)),
+);
 
 const effects: ItemEffects = {
   vulnerable: (id) => itemPlay.vulnerable(id),
@@ -488,30 +669,11 @@ const effects: ItemEffects = {
   stun(id, seconds, kind) {
     // Whatever it was carrying is gone, and it cannot be hit again for a while.
     itemPlay.struck(id);
-    if (id === 0) {
-      chair.stun(seconds);
-      // The module blocks the screen for exactly as long as the spin-out, which is
-      // the one place where the interface and the simulation have to agree to the
-      // frame: a card that outlasts the stun is a card you sit behind while
-      // driving, and one that ends early is a punishment with a seam in it.
-      if (kind === 'training') itemHud.module(seconds);
-    } else {
-      rivals.stun(id - 1, seconds);
-    }
+    actors[id]?.stun(seconds, kind);
   },
-  shove(id, dx, dz, speed) {
-    // Only the player. A rival is a distance along the route plus a lane offset and
-    // has nowhere to be shoved to — see the note on `stun` in `rivals.ts`.
-    if (id === 0) chair.shove(dx, dz, speed);
-  },
-  push(id, speed, seconds) {
-    if (id === 0) chair.push(speed, seconds);
-    else rivals.push(id - 1, speed, seconds);
-  },
-  blind(id, seconds) {
-    if (id === 0) itemHud.blind(seconds);
-    else rivals.blind(id - 1, seconds);
-  },
+  shove: (id, dx, dz, speed) => actors[id]?.shove(dx, dz, speed),
+  push: (id, speed, seconds) => actors[id]?.push(speed, seconds),
+  blind: (id, seconds) => actors[id]?.blind(seconds),
 };
 
 /** Every puddle is its own splash, so each one gets its own stream of numbers. */
@@ -532,9 +694,34 @@ scene.add(projectiles.root);
 const pinatas = createPinatas(lapPath, physics);
 scene.add(pinatas.group);
 
+/**
+ * Where a seat stands, 1-based.
+ *
+ * Over `seats` — everybody — rather than over the computer's chairs, which is what
+ * this used to ask `rivals.placeOf` for. That was right for exactly as long as the
+ * only person on the grid was the one reading the number: it counts rails ahead and
+ * adds one, so in a room it cheerfully reported second place to somebody being led
+ * by three of their friends. The position on screen and the ordinal on the result
+ * card both come from here, so both were wrong together.
+ *
+ * The comparison is sound because every seat's `progress` is the same quantity:
+ * distance *driven*, with the grid handicap already folded in. A rail publishes
+ * `state.progress + state.grid.back` (see `v.progress` in `rivals.ts`), the local
+ * chair accumulates from its own slot's `back`, and a proxy carries whatever the
+ * machine driving it worked out the same way. Ranking raw route position instead
+ * would put whoever started at the back last for the whole first lap of a race they
+ * were leading.
+ */
+function placeOf(id: number): number {
+  const mine = seats[id]?.progress ?? 0;
+  let ahead = 0;
+  for (const seat of seats) if (seat.id !== id && seat.progress > mine) ahead++;
+  return ahead + 1;
+}
+
 /** Carry where everybody is into the flat list the item rules read. */
 function seatEveryone(): void {
-  const me = seats[0]!;
+  const me = seats[localSeat]!;
   const p = chair.body.translation();
   me.position.set(p.x, p.y - FLOOR_OFFSET, p.z);
   // Yaw off the body rather than off `chair.object`, because this runs inside the
@@ -547,13 +734,35 @@ function seatEveryone(): void {
   me.stunned = chair.stunned();
   me.finished = race.phase === 'finished';
 
-  for (let i = 0; i < rivals.all.length; i++) {
-    const rival = rivals.all[i]!;
-    const seat = seats[i + 1]!;
+  /*
+   * The chairs being driven from another machine, taken from their interpolation
+   * buffers. Read before the rails only because it reads better; they are the same
+   * kind of record and everything downstream treats them identically.
+   */
+  if (proxies) {
+    for (const seat of proxySeats) {
+      const proxy = proxies.get(seat);
+      const record = seats[seat];
+      if (!proxy || !record || !proxy.live) continue;
+      record.position.copy(proxy.position);
+      record.yaw = proxy.yaw;
+      record.progress = proxy.progress;
+      record.stunned = proxy.stunned;
+      record.finished = proxy.finished;
+    }
+  }
+
+  // Taken once. `rivals.all` is a getter over however many rails are actually
+  // racing, so it builds an array on every read — and this runs 120 times a second.
+  const field = rivals.all;
+  for (let rail = 0; rail < field.length; rail++) {
+    const rival = field[rail]!;
+    const seat = seats[seatOfRail(rail)];
+    if (!seat) continue;
     seat.position.copy(rival.position);
     // The rival's own yaw is its mesh's, which is the route's heading turned into
     // the game's convention — so an item thrown by one leaves along the same facing
-    // the player's would.
+    // a person's would.
     seat.yaw = rival.yaw;
     seat.progress = rival.progress;
     seat.stunned = rival.stunned;
@@ -580,13 +789,18 @@ function seatEveryone(): void {
  * has lost the race.
  */
 function stage(inShowroom: boolean): void {
-  const to = inShowroom ? SHOWROOM : shell.spawn;
+  const to = inShowroom ? SHOWROOM : localSpawn();
   chair.place(to.position[0], to.position[2], to.yaw, 0, to.position[1]);
   chair.sync();
 }
 
 function restart(): void {
-  chair.reset();
+  // Onto this seat's slot rather than `chair.reset()`, which goes back to whichever
+  // one the chair was built with. They are the same in a solo race and are not in a
+  // room — see `localSpawn`.
+  const to = localSpawn();
+  chair.place(to.position[0], to.position[2], to.yaw, 0, to.position[1]);
+  chair.sync();
   playerS = 0;
   playerProgress = 0;
   onGrid = true;
@@ -683,7 +897,7 @@ const menu = createMenu({
       choose: (index, direction) => {
         garage.setRider(index);
         // The field is everyone else, so changing driver changes the grid.
-        fieldAgainst(garage.rider);
+        refreshField();
         // And the seat turns to show you who you just picked. See SWIVEL.
         presentDriver(direction);
       },
@@ -699,6 +913,36 @@ const menu = createMenu({
       },
     },
   },
+  /*
+   * The room, reached through functions rather than handed over as an object.
+   *
+   * `createMenu` runs before the room section below exists — the front end is built
+   * early because it owns the boot card — so everything here is a call made later,
+   * from a click, by which time it does.
+   */
+  room: {
+    available: MULTIPLAYER_AVAILABLE,
+    state: () =>
+      room
+        ? {
+            code: room.code,
+            connected: room.connected,
+            error: room.error,
+            isHost: room.isHost(),
+            you: room.you,
+            members: room.members,
+          }
+        : null,
+    name: () => playerName,
+    setName: (value) => {
+      playerName = value;
+    },
+    create: () => newRoomCode(),
+    join: (code) => enterRoom(code),
+    leave: () => leaveRoom(),
+    setReady: (ready) => room?.setReady(ready),
+    start: () => room?.start(),
+  },
 });
 
 /**
@@ -709,6 +953,8 @@ const menu = createMenu({
  * three of them over the driver's shoulder.
  */
 function showPickups(staged: boolean): void {
+  // Hidden outright in a room, rather than standing there un-takeable.
+  if (online()) staged = true;
   // `staged` rather than `menu.open`, because the front end is on screen before the
   // menu is: `staging` holds the character-select framing from the first frame until
   // the title card has finished lifting, and a pickup that is only hidden once the
@@ -727,6 +973,186 @@ function showPickups(staged: boolean): void {
 }
 
 /*
+ * ---- racing against other people ------------------------------------------
+ *
+ * Everything above works the same whether there is anybody else in the room; this is
+ * the part that puts them there. Three jobs and no more:
+ *
+ *  1. Take the seating the room dealt and rearrange the grid around it — who is at
+ *     this keyboard, which slots the computer is left with, and which chairs are
+ *     being driven from somewhere else.
+ *  2. Say where this chair is, twenty times a second.
+ *  3. Drop the flag when the room says to, rather than when this machine feels like
+ *     it.
+ *
+ * **Items are off in a room, in this first cut.** The rules are host-authoritative
+ * by design — see `Effect` in `net/protocol.ts`, which already carries them — but the
+ * relay is not wired yet, and a microwave that goes off on one screen and not another
+ * is worse than no microwave. Racing, contact, laps and standings all work; the
+ * piñatas stay on their hooks. It is the next thing.
+ */
+
+/** The room, once joined. Null in a solo race, which is every race by default. */
+let room: Room | null = null;
+/** The other people's chairs, as poses to interpolate. Null when nobody else is in. */
+let proxies: Proxies | null = null;
+/** True between the room's start signal and leaving the room. */
+let racingOnline = false;
+/** Room-clock instant the flag drops, or null if it already has. */
+let flagAt: number | null = null;
+/** Seconds until this chair should say where it is again. */
+let poseDue = 0;
+
+const online = (): boolean => racingOnline && !!room;
+
+/**
+ * Rebuild the actors table for the current seating.
+ *
+ * A seat driven by another person gets `IDLE_ACTOR` and that is not a stub: they own
+ * their own chair, so a stun applied to their proxy here would be a second opinion
+ * about something their machine has already decided and is already telling us about
+ * through its poses. The only honest thing to do locally is nothing.
+ */
+function rebuildActors(): void {
+  for (const seat of seats) {
+    actors[seat.id] =
+      seat.id === localSeat
+        ? localActor
+        : railOfSeat(seat.id) >= 0
+          ? railActor(railOfSeat(seat.id))
+          : IDLE_ACTOR;
+  }
+}
+
+/** Put the grid back the way a solo race wants it. */
+function seatSolo(): void {
+  humanSeats = [0];
+  localSeat = 0;
+  seatSlots = [PLAYER_SLOT, ...GRID_SLOTS.slice(0, MAX_RIVALS)];
+  railSeats = [1, 2, 3, 4];
+  proxySeats = [];
+  rivals.reseat(railSeats.map((seat) => seatSlots[seat]!));
+  rebuildActors();
+  refreshField();
+}
+
+/**
+ * Take the seating a room dealt.
+ *
+ * People take the front slots in the order they joined and the computer fills in
+ * behind them, which is the arrangement that needs the least explaining: the grid
+ * reads as "everyone who turned up, then the rest".
+ */
+function seatRoom(count: number, mine: number): void {
+  humanSeats = Array.from({ length: count }, (_, i) => i);
+  localSeat = mine;
+  seatSlots = [...GRID_SLOTS];
+  railSeats = [];
+  for (let seat = count; seat < GRID_SLOTS.length; seat++) railSeats.push(seat);
+  proxySeats = humanSeats.filter((seat) => seat !== mine);
+
+  rivals.reseat(railSeats.map((seat) => seatSlots[seat]!));
+  rebuildActors();
+
+  /*
+   * The chair meshes, divided up.
+   *
+   * There are exactly four of them and exactly four chairs that are not this one, so
+   * they always go round: the rails take the first `railSeats.length` — which is what
+   * `rivals.reseat` leaves racing — and the proxies take what is left. No new
+   * geometry, no pool, and the rig each one already carries animates it.
+   */
+  proxies?.dispose();
+  proxies = createProxies(
+    physics,
+    proxySeats.map((seat, i) => ({ seat, object: rivalRigs[railSeats.length + i]!.object })),
+  );
+}
+
+/** Dress a chair mesh with a particular character. Used for the people in a room. */
+function dressRig(index: number, key: DriverKey): void {
+  const rig = rivalRigs[index];
+  if (!rig) return;
+  if (rig.figure) rig.object.remove(rig.figure);
+  const figure = kitDriver(key);
+  rig.object.add(figure);
+  rig.figure = figure;
+  rig.rig = bindDriver(figure);
+}
+
+/** Everything a race needs putting back, without touching the room. */
+function resetForRace(): void {
+  restart();
+  proxies?.reset();
+}
+
+/** Hand the room to the front end, and take a seating back. */
+const roomHandlers: RoomHandlers = {
+  changed: () => menu.roomChanged(),
+  started(message) {
+    if (!room) return;
+    const mine = message.seating.find((s) => s.id === room!.you)?.seat ?? 0;
+    seatRoom(message.seating.length, mine);
+
+    // Everybody wears the driver they picked in the lobby: the people over the wire
+    // on the proxy rigs, and whatever the computer was left with on the rails.
+    const byId = new Map(room.members.map((m) => [m.id, m]));
+    proxySeats.forEach((seat, i) => {
+      const who = message.seating.find((s) => s.seat === seat);
+      const member = who && byId.get(who.id);
+      if (member) dressRig(railSeats.length + i, RIDERS[member.rider]!.key);
+    });
+    refreshField();
+    useDriver(RIDERS[garage.rider]!.key);
+
+    racingOnline = true;
+    poseDue = 0;
+    resetForRace();
+    // Held on the grid until the room's clock reaches the agreed instant. `restart`
+    // has already called `race.start()`, so undo that and wait.
+    race.reset();
+    flagAt = message.at;
+    menu.hide();
+  },
+  pose: (pose) => proxies?.accept(pose),
+  effect: () => {
+    // Items are off in a room for now — see the note at the top of this section.
+  },
+  lap: () => {},
+};
+
+/** Join a room, or leave the one we are in. Called by the lobby. */
+function enterRoom(code: string): void {
+  leaveRoom();
+  room = joinRoom(
+    code,
+    { name: playerName, rider: garage.rider, ride: garage.ride },
+    roomHandlers,
+  );
+}
+
+function leaveRoom(): void {
+  room?.leave();
+  room = null;
+  racingOnline = false;
+  flagAt = null;
+  proxies?.dispose();
+  proxies = null;
+  seatSolo();
+  useDriver(RIDERS[garage.rider]!.key);
+  resetForRace();
+  race.reset();
+}
+
+/**
+ * What to call this player.
+ *
+ * Kept here rather than in the room so that it survives leaving one and joining
+ * another, which is what somebody racing a few rounds with the same friends will do.
+ */
+let playerName = '';
+
+/*
  * ---- throwing things ------------------------------------------------------
  *
  * E forward, Q behind, and holding E drags the item along behind you instead of
@@ -743,20 +1169,20 @@ addEventListener('keydown', (e) => {
   if (e.code === 'Equal' || e.code === 'NumpadAdd') quality.step(1);
   if (e.code === 'Digit0' || e.code === 'Numpad0') quality.auto();
   if (!e.repeat && race.live && !menu.open) {
-    if (e.code === 'KeyE') itemPlay.trailPlayer(true);
-    if (e.code === 'KeyQ') itemPlay.usePlayer(true);
+    if (e.code === 'KeyE') itemPlay.trail(localSeat, true);
+    if (e.code === 'KeyQ') itemPlay.use(localSeat, true);
   }
   keys.add(e.code);
 });
 addEventListener('keyup', (e) => {
-  if (e.code === 'KeyE' && race.live && !menu.open) itemPlay.usePlayer(false);
+  if (e.code === 'KeyE' && race.live && !menu.open) itemPlay.use(localSeat, false);
   keys.delete(e.code);
 });
 addEventListener('blur', () => {
   // A key that goes down here and up in another window never comes up as far as this
   // page is concerned, and an item left trailing forever is one that can never be
   // thrown.
-  itemPlay.trailPlayer(false);
+  itemPlay.trail(localSeat, false);
   keys.clear();
 });
 
@@ -1546,6 +1972,23 @@ const quality = createQuality({
 const focusPoint = new THREE.Vector3();
 
 function tick(dt: number): void {
+  /*
+   * The flag, on the room's clock rather than on this machine's whim.
+   *
+   * Everybody was handed the same instant when the host pressed start, and everybody
+   * has measured their own offset from the room's clock — see `net/clock.ts` — so
+   * calling `race.start()` when that instant arrives puts five countdowns within a
+   * few milliseconds of each other. The three seconds of 3-2-1 absorbs the rest.
+   *
+   * In `tick` rather than in `frame`, for the same reason the lap timer is: this is a
+   * thing that happens to the race, and a race event resolved on the render loop is
+   * one that happens at a different moment on a fast machine and a slow one.
+   */
+  if (flagAt !== null && room && room.clock.now() >= flagAt) {
+    flagAt = null;
+    race.start();
+  }
+
   // Where the player is round the lap, first, because everything below reads it: the
   // rivals' rubber band, which side one comes past on, the standings, and which chair
   // an item is thrown at. It used to sit in `frame` immediately above the call to
@@ -1579,7 +2022,7 @@ function tick(dt: number): void {
      * is ample for a rubber band measured in tens of metres, and for a rival
      * deciding which side of the player to come past on.
      */
-    rivals.update(h, race.phase === 'racing', player, race.totalTime);
+    rivals.update(h, race.phase === 'racing', humans, race.totalTime);
 
     /*
      * And the items, last in the step, because everything they read has just moved.
@@ -1634,15 +2077,51 @@ function tick(dt: number): void {
   pinatas.update(
     dt,
     seats,
-    (id) => race.live && itemPlay.wants(id),
+    localSeat,
+    // Nothing is on offer in a room — see the note on items in the room section.
+    (id) => !online() && race.live && itemPlay.wants(id),
     (id) => void itemPlay.give(id, itemPlay.placeOf(id)),
   );
 
   // Whatever the player is dragging, drawn where they are dragging it. Nothing
   // collides with it — the shield is resolved in `items.absorb` at the moment of the
   // hit — so this is purely the picture of one.
-  const slot = itemPlay.slots[0]!;
-  projectiles.trail(slot.trailing ? slot.held : null, chair.object.position, chair.object.rotation.y);
+  /*
+   * Say where this chair is, and draw everybody else's.
+   *
+   * On the frame rather than in the step, and at a fixed rate rather than every
+   * frame: twenty a second is `POSE_HZ`, which is what the interpolation on the
+   * other end is built around, and sending at the render rate would mean a machine
+   * holding 144 fps flooding one holding 40 with poses it cannot use.
+   */
+  if (online() && room) {
+    const clock = room.clock.now();
+    poseDue -= dt;
+    if (poseDue <= 0) {
+      poseDue = 1 / POSE_HZ;
+      const me = seats[localSeat]!;
+      room.sendPose({
+        seat: localSeat,
+        t: clock,
+        x: me.position.x,
+        y: me.position.y,
+        z: me.position.z,
+        yaw: me.yaw,
+        progress: me.progress,
+        stunned: me.stunned,
+        finished: me.finished,
+      });
+    }
+    proxies?.update(clock);
+  }
+
+  const slot = itemPlay.slots[localSeat]!;
+  projectiles.trail(
+    localSeat,
+    slot.trailing ? slot.held : null,
+    chair.object.position,
+    chair.object.rotation.y,
+  );
 }
 
 const clock = new THREE.Clock();
@@ -1718,7 +2197,7 @@ if (boot) {
 }
 
 // The opening grid, against whoever the default driver is not.
-fieldAgainst(garage.rider);
+refreshField();
 
 /** Whether last frame was spent on the menu's turntable. See `frame`. */
 let orbiting = false;
@@ -1769,7 +2248,18 @@ function frame(): void {
    * Declared at module scope rather than here because the pointer handlers that turn
    * the seat read it too, and they run between frames — see the note above SWIVEL.
    */
-  staged = menu.open || staging;
+  /*
+   * A pause is a private thing; a race is not.
+   *
+   * Solo, the menu freezes the world outright — `tick` is not called, the clock and
+   * the solver hold exactly where they were, and that is the right behaviour for one
+   * person pausing their own game. In a room it is not available: four other people
+   * are still driving, and a client that stops stepping stops sending poses and
+   * arrives back seconds behind a race that never waited. So online the menu is an
+   * overlay over a race that keeps running, and `staging` — the front end's own
+   * showroom, before any of this — is the only thing that still freezes it.
+   */
+  staged = online() ? staging : menu.open || staging;
 
   // Paused means the simulation stops and the frame does not: the menu is a
   // blur over a live view of the room, and a still image behind it would be a
@@ -1777,6 +2267,8 @@ function frame(): void {
   // and the driver's animation are all held exactly where they were — and the
   // keys are dropped, so a W held down while the menu came up is not still held
   // down on the way out of it.
+  if (menu.open) keys.clear();
+
   if (staged) {
     keys.clear();
     // The camera is the only thing still moving, and it is the point of the
@@ -1839,8 +2331,12 @@ function frame(): void {
     // The rivals' own animation. Synthetic telemetry: they have a speed and
     // nothing else — no slip, no charge, no impacts — and a throttle held down
     // whenever they are moving, which is what makes the legs work.
+    // Only the rails that are racing have a state to animate off. In a room the
+    // computer may be driving two chairs, or none, and the rest are parked.
+    const racing = rivals.all;
     for (const [i, rig] of rivalRigs.entries()) {
-      const state = rivals.all[i]!;
+      const state = racing[i];
+      if (!state) continue;
       rig.driver.update(
         dt,
         { along: state.speed, lateralRight: 0, charge: 0, impact: 0, airborne: false, air: 0 },
@@ -1921,7 +2417,7 @@ function frame(): void {
   itemHud.setVisible(!menu.open && race.phase !== 'grid');
   rush.setVisible(!menu.open && race.phase !== 'grid');
   rush.update(dt, chair.speed() * 3.6, chair.driftCharge(), chair.driftTier(), boostThisFrame);
-  itemHud.update(dt, itemPlay.held, itemPlay.slots[0]!.trailing);
+  itemHud.update(dt, itemPlay.heldBy(localSeat), itemPlay.slots[localSeat]!.trailing);
 
   // The taxiway sign points down the racing line rather than at the gate: a bearing
   // to a checkpoint through a wall, across a junction, or on the level below is
@@ -1941,8 +2437,8 @@ function frame(): void {
     // Taken on the frame, not in the step: a landing inside a substep would
     // otherwise be reported up to eight times before the next paint.
     chair.takeTrick(),
-    rivals.placeOf(playerProgress),
-    FIELD_SIZE + 1,
+    placeOf(localSeat),
+    seats.length,
   );
   requestAnimationFrame(frame);
 }

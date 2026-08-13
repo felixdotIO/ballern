@@ -52,7 +52,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 
 import { CHAIR } from '../office/metrics';
-import { ACROSS, GRID, LINE, RUN, type GridSlot } from './grid';
+import { ACROSS, LINE, RUN, type GridSlot } from './grid';
 import type { Physics } from './physics';
 
 /** Same footprint as the player's, for the same reason: it is the same chair. */
@@ -105,8 +105,15 @@ const SLOTS: readonly { lane: number; weave: number }[] = [
   { lane: 0.16, weave: 0.14 },
 ];
 
-/** How many chairs the computer drives. One per slot. */
-export const FIELD_SIZE = SLOTS.length;
+/**
+ * The most chairs the computer can drive — one per driving slot above.
+ *
+ * A ceiling now rather than a count. How many it *actually* drives is however many
+ * of the five grid slots no person took, which is decided in a lobby and passed to
+ * `createRivals` as bodies and grid slots. Four is still the number in a solo race,
+ * because a solo race is one person and five slots.
+ */
+export const MAX_RIVALS = SLOTS.length;
 
 /**
  * The four axes a computer driver is made of. All 0…1 except `nerve`.
@@ -224,6 +231,38 @@ const TRAFFIC = {
   /** How far ahead a chair looks for someone in its way, metres. */
   sees: 7,
   /**
+   * And how far ahead somebody has to actually *be* to count as being ahead.
+   *
+   * ---- the grid deadlock ---------------------------------------------------
+   *
+   * This was `gap <= 0` — anything up the road at all is traffic — and it has one
+   * fixed point that a chair can never drive out of.
+   *
+   * Everything on the grid starts at `driven === 0` exactly: `reset` sets
+   * `progress = -grid.back`, so `progress + grid.back` is zero for every slot. If
+   * anything else is sitting a *hair* past zero, the test says it is ahead, the
+   * holding controller below matches its speed, and its speed is zero. So the rail
+   * does not move; because it does not move, `driven` stays at zero; because
+   * `driven` stays at zero, the gap stays where it was. The chair sits on its slot
+   * for the whole race, and the one behind it then holds station on *it*, and so on
+   * back down the column.
+   *
+   * Measured, that is exactly what happened, and the hair was **two microns**. A
+   * person standing on the back slot has `progress = 3.5 + progressOnGrid(...)`,
+   * which is zero in exact arithmetic and +2.3e-6 in floating point. `plan.ts`
+   * happens to write `SPAWN` out rounded to three decimals, which lands on −3.4e-4
+   * instead — on the *other* side of zero — and that rounding is the only reason
+   * this has never been seen. Compute the slot properly, as a room full of people
+   * on assigned slots must, and two of the four rails never leave the grid.
+   *
+   * 50 mm, then, and the size is not delicate: a chair is 660 mm across, so nothing
+   * within 50 mm of another chair's centre is following it — it is inside it, and
+   * the solver owns that. Real following distances on this lap start around 400 mm
+   * and the number they settle at is `keeps`, 1.6 m. What this excludes is only the
+   * degenerate band where "ahead" is float noise.
+   */
+  touching: 0.05,
+  /**
    * Lateral distance within which somebody counts as being in the way — and, the
    * same number the other way round, the room a move has to leave to be worth
    * making. A chair is 660 mm across, so two of them at 0.62 are not passing, they
@@ -320,6 +359,13 @@ export type Track = {
 };
 
 export type Rivals = {
+  /**
+   * The rails that are actually racing, in rail order.
+   *
+   * A getter rather than a fixed array because `reseat` can shorten it: with three
+   * people in a room the computer drives two chairs, and the other two must not
+   * appear in the standings, be thrown at, or be counted as traffic.
+   */
   readonly all: readonly Rival[];
   /** One per rival, to be added to the scene and moved by `update`. */
   readonly objects: readonly THREE.Object3D[];
@@ -329,11 +375,15 @@ export type Rivals = {
    * `live` is false on the grid, during the countdown and after the flag, and holds
    * everybody exactly where they are.
    *
-   * The player arrives as three numbers rather than one because the field has to be
-   * able to *see* them: distance for the rubber band and the standings, lane and
-   * speed so a rival catching the player goes round rather than through.
+   * Each person arrives as three numbers rather than one because the field has to be
+   * able to *see* them: distance for the rubber band, lane and speed so a rival
+   * catching one goes round rather than through.
+   *
+   * A list rather than a single player, because there can be up to five of them and
+   * a rival has to treat every one as traffic. With one in it this is exactly what
+   * it was.
    */
-  update(h: number, live: boolean, player: PlayerOnTrack, elapsed: number): void;
+  update(h: number, live: boolean, humans: readonly PlayerOnTrack[], elapsed: number): void;
   /** Back to the grid. */
   reset(): void;
   /**
@@ -343,6 +393,23 @@ export type Rivals = {
    * everyone else: pick the boss and the boss stops being on the grid.
    */
   setDrivers(drivers: readonly Driver[]): void;
+  /**
+   * Deal the computer a different hand: which grid slots it has, and how many.
+   *
+   * A race in a room decides this in a lobby rather than at load — four rails
+   * against one person, two against three, none at all against five — and the slots
+   * left over are whichever ones nobody took, not always the front four.
+   *
+   * Reseating rather than rebuilding, deliberately. The bodies are kinematic
+   * capsules that get moved wherever they are told every substep, so there is
+   * nothing about a rail that has to be constructed against a particular slot; the
+   * alternative is destroying and recreating rigid bodies between races, which is
+   * churn in the solver to achieve a change of two numbers.
+   *
+   * Rails beyond `slots.length` are parked: not simulated, not in `all`, and their
+   * meshes are the caller's to hide. Calling this implies a `reset`.
+   */
+  reseat(slots: readonly GridSlot[]): void;
 
   /*
    * ---- what an item may do to one ------------------------------------------
@@ -361,13 +428,12 @@ export type Rivals = {
   /** A faceful of powder: it cannot be blinded, so it is slowed instead. */
   blind(index: number, seconds: number): void;
 
-  /**
-   * The player's position in the field, 1-based.
-   *
-   * Ties go to the player, which is the convention every racing game uses and the
-   * only one that does not read as being robbed.
+  /*
+   * Standings used to live here, as a count of rails ahead of one number. They do
+   * not any more: with people in the other chairs the field is not the computer's
+   * chairs, so ranking it is a question about `seats` and belongs where that list
+   * is. See `placeOf` in `main.ts`.
    */
-  placeOf(playerProgress: number): number;
 };
 
 type State = {
@@ -445,13 +511,34 @@ export function createRivals(
   laps: number,
   /** One chair-and-rider per rival, already built by the caller. */
   bodies: readonly THREE.Object3D[],
+  /**
+   * The grid slot each of them starts from, in the same order.
+   *
+   * Passed in rather than read off `GRID_SLOTS[i]`, because which slots are the
+   * computer's is no longer a fact about this module: it is whatever is left after
+   * the people in the room have taken theirs. Reading index `i` was right only for
+   * as long as the rails were always slots 0-3 and the one person was always at the
+   * back, and it fails silently rather than loudly when that stops being true —
+   * two chairs on one slot rather than an error.
+   */
+  grid: readonly GridSlot[],
 ): Rivals {
   const at = new THREE.Vector3();
   const states: State[] = [];
+  /**
+   * How many rails are racing. See `reseat`.
+   *
+   * Everything that walks the field walks `racing()` rather than `states`, so a
+   * parked rail is invisible to the standings, to traffic, and to anything thrown.
+   */
+  let active = 0;
+  const racing = (): State[] => states.slice(0, active);
 
-  SLOTS.forEach((slot, i) => {
-    const object = bodies[i];
-    if (!object) throw new Error(`grid slot ${i + 1} has no chair to drive`);
+  bodies.forEach((object, i) => {
+    const slot = SLOTS[i];
+    const start = grid[i];
+    if (!slot) throw new Error(`no driving slot for rival ${i + 1}; the most there can be is ${MAX_RIVALS}`);
+    if (!start) throw new Error(`rival ${i + 1} has no grid slot to start from`);
 
     const body = physics.world.createRigidBody(
       // Kinematic: it moves where it is told and nothing the player does changes
@@ -477,12 +564,12 @@ export function createRivals(
 
     states.push({
       slot,
-      grid: GRID[i]!,
+      grid: start,
       driver: { label: '', pace: 5.5, drive: { nerve: 1, bold: 0.5, flow: 0.7, steady: 0.8 } },
       progress: 0,
       s: 0,
       speed: 0,
-      lane: GRID[i]!.lane,
+      lane: start.lane,
       swayCap: 0.6,
       move: 0,
       moveOut: 0,
@@ -741,8 +828,8 @@ export function createRivals(
   /**
    * Whoever this rival is about to run into, if anybody.
    *
-   * The player counts. A field that queues politely behind each other and then
-   * drives straight through the one chair the player is sitting in has not learned
+   * People count. A field that queues politely behind each other and then drives
+   * straight through the one chair somebody is sitting in has not learned
    * anything — and being overtaken *properly*, with somebody pulling out and coming
    * past, is most of what makes a rival feel like a driver rather than a timer.
    *
@@ -752,23 +839,28 @@ export function createRivals(
   function nearestAhead(
     self: State,
     driven: number,
-    player: PlayerOnTrack,
+    humans: readonly PlayerOnTrack[],
   ): { gap: number; speed: number; lane: number; faster: boolean } | null {
     let best: { gap: number; speed: number; lane: number; faster: boolean } | null = null;
 
     const consider = (theirDriven: number, theirLane: number, theirSpeed: number): void => {
       const gap = theirDriven - driven;
-      if (gap <= 0 || gap > TRAFFIC.sees) return;
+      // See `TRAFFIC.touching`: a chair that is level with this one is not ahead of
+      // it, and treating it as though it were is a deadlock rather than a queue.
+      if (gap <= TRAFFIC.touching || gap > TRAFFIC.sees) return;
       if (Math.abs(theirLane - self.lane) > TRAFFIC.wide) return;
       if (best && gap >= best.gap) return;
       best = { gap, speed: theirSpeed, lane: theirLane, faster: self.speed > theirSpeed + 0.04 };
     };
 
-    for (const other of states) {
+    for (const other of racing()) {
       if (other === self || other.finished) continue;
       consider(other.progress + other.grid.back, other.lane, other.speed);
     }
-    consider(player.progress, player.lane, player.speed);
+    // People are already carrying their own grid handicap in `progress` — see the
+    // note on `flagAt` — so they go in as they arrive. A person who has finished is
+    // still traffic: they are parked somewhere on this floor either way.
+    for (const person of humans) consider(person.progress, person.lane, person.speed);
 
     return best;
   }
@@ -790,7 +882,7 @@ export function createRivals(
   const flagAt = laps * track.total;
 
   function reset(): void {
-    states.forEach((state, i) => {
+    racing().forEach((state, i) => {
       // On the grid: behind the line by its own slot's spacing, and off to its own
       // side of it. Negative, because the line is route zero and the grid is behind
       // it — which is also what makes the flag arithmetic below come out right
@@ -815,15 +907,20 @@ export function createRivals(
     });
   }
 
+  // Everything the caller handed over is racing until somebody says otherwise.
+  active = states.length;
   reset();
 
   return {
-    all: states.map((s) => s.view),
-    objects: states.map((s) => s.object),
+    get all() {
+      return racing().map((s) => s.view);
+    },
+    get objects() {
+      return racing().map((s) => s.object);
+    },
 
-    update(h, live, player, elapsed) {
-      const playerProgress = player.progress;
-      for (const state of states) {
+    update(h, live, humans, elapsed) {
+      for (const state of racing()) {
         if (!live || state.finished) {
           // Still settled every step: a finished rival is parked on the line and a
           // rival on the grid has to be *somewhere*, and both want the same code.
@@ -902,10 +999,30 @@ export function createRivals(
             ? Math.max(TUNING.slowestCorner, Math.sqrt((grip * TUNING.lookAhead) / turn))
             : Infinity;
 
-        // The band, from the gap in metres of route rather than in seconds: a gap
-        // measured in time swings wildly whenever either of you is in a corner.
+        /*
+         * The band, from the gap in metres of route rather than in seconds: a gap
+         * measured in time swings wildly whenever either of you is in a corner.
+         *
+         * Against the *nearest* person rather than against the field's leader, and
+         * with more than one of them on the grid that is a decision rather than an
+         * implementation detail. The band exists to keep a race close for whoever is
+         * near this chair; measured against the leader it would push a rival that is
+         * already scrapping with a back-marker, and measured against an average it
+         * would answer to nobody actually on screen. Nearest is the only reading
+         * under which a rival races the person it is racing.
+         *
+         * With one person in the room this is the number it always was.
+         */
         const driven = state.progress + state.grid.back;
-        const gap = playerProgress - driven;
+        let gap = 0;
+        let closest = Infinity;
+        for (const person of humans) {
+          const theirs = person.progress - driven;
+          if (Math.abs(theirs) < closest) {
+            closest = Math.abs(theirs);
+            gap = theirs;
+          }
+        }
         const band = 1 + TUNING.band * Math.max(-1, Math.min(1, gap / TUNING.bandFull));
 
         /*
@@ -946,7 +1063,7 @@ export function createRivals(
          * what the player needs to read. What it must never do is what it used to,
          * which is advance straight through the chair in front.
          */
-        const ahead = nearestAhead(state, driven, player);
+        const ahead = nearestAhead(state, driven, humans);
         if (ahead) {
           const urgency = 1 - ahead.gap / TRAFFIC.sees;
           /*
@@ -1098,23 +1215,31 @@ export function createRivals(
       state.blindFor = Math.max(state.blindFor, seconds);
     },
 
+    reseat(slots) {
+      active = Math.min(slots.length, states.length);
+      for (let i = 0; i < active; i++) {
+        const state = states[i]!;
+        state.grid = slots[i]!;
+      }
+      // Whatever is parked must not be left standing on the grid from last time.
+      for (let i = active; i < states.length; i++) {
+        const state = states[i]!;
+        state.finished = true;
+        state.speed = 0;
+        state.object.visible = false;
+      }
+      for (let i = 0; i < active; i++) states[i]!.object.visible = true;
+      reset();
+    },
+
     setDrivers(drivers) {
-      states.forEach((state, i) => {
+      racing().forEach((state, i) => {
         // Fewer drivers than slots would leave a nameless chair on the grid, so the
         // list wraps rather than running out. It never should: the roster is one
         // longer than the field by construction.
         state.driver = drivers[i % Math.max(1, drivers.length)] ?? state.driver;
         settle(state);
       });
-    },
-
-    placeOf(playerProgress) {
-      // Distance driven, not distance along the route: the field starts up the road,
-      // so comparing raw route position would have the player last for the whole
-      // first lap of a race they were leading.
-      let ahead = 0;
-      for (const state of states) if (state.progress + state.grid.back > playerProgress) ahead++;
-      return ahead + 1;
     },
   };
 }

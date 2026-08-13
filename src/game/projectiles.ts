@@ -55,7 +55,8 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 
-import type { ItemKind, Racer } from './items';
+import type { ItemKind } from './items';
+import type { Racer } from './seat';
 import type { Physics } from './physics';
 
 /** The route, as much of it as this needs. `skins/clay/routePath.ts` builds it. */
@@ -206,13 +207,18 @@ export type Projectiles = {
   /** Call from inside the fixed physics step. */
   update(h: number, racers: readonly Racer[]): void;
   /**
-   * Draw whatever the player is dragging behind them, or nothing.
+   * Draw whatever a chair is dragging behind it, or nothing.
    *
    * Called on the frame rather than in the step: it is a position, not a
    * simulation, and nothing collides with it — the shield is resolved in
    * `items.absorb` at the moment of the hit, not by this object being in the way.
+   *
+   * Keyed by seat, because more than one chair in the field can be dragging one
+   * at a time. It was a single object for as long as the only chair that could
+   * trail was the one at the keyboard; the moment a second person is in the room
+   * that assumption puts both of their shields in the same place.
    */
-  trail(kind: ItemKind | null, at: THREE.Vector3, yaw: number): void;
+  trail(id: number, kind: ItemKind | null, at: THREE.Vector3, yaw: number): void;
   reset(): void;
 };
 
@@ -235,8 +241,8 @@ export function createProjectiles(
   const point = new THREE.Vector3();
   const probe = new THREE.Vector3();
 
-  /** The item the player is dragging, if any. One object, re-dressed. */
-  let trailed: { kind: ItemKind; object: THREE.Object3D } | null = null;
+  /** The item each chair is dragging, if any. One object per seat, re-dressed. */
+  const trailed = new Map<number, { kind: ItemKind; object: THREE.Object3D }>();
 
   /**
    * The field as of the last step.
@@ -655,23 +661,25 @@ export function createProjectiles(
       }
     },
 
-    trail(kind, at_, yaw) {
+    trail(id, kind, at_, yaw) {
+      let mine = trailed.get(id);
       if (!kind) {
-        if (trailed) {
-          root.remove(trailed.object);
-          trailed = null;
+        if (mine) {
+          root.remove(mine.object);
+          trailed.delete(id);
         }
         return;
       }
-      if (!trailed || trailed.kind !== kind) {
-        if (trailed) root.remove(trailed.object);
+      if (!mine || mine.kind !== kind) {
+        if (mine) root.remove(mine.object);
         const object = prototype(kind).clone();
         root.add(object);
-        trailed = { kind, object };
+        mine = { kind, object };
+        trailed.set(id, mine);
       }
       facing(yaw, true, to);
-      trailed.object.position.set(at_.x + to.x * 1.05, at_.y + 0.34, at_.z + to.z * 1.05);
-      trailed.object.rotation.set(0, yaw, 0);
+      mine.object.position.set(at_.x + to.x * 1.05, at_.y + 0.34, at_.z + to.z * 1.05);
+      mine.object.rotation.set(0, yaw, 0);
     },
 
     reset() {
@@ -686,8 +694,8 @@ export function createProjectiles(
         (cloud.mesh.material as THREE.Material).dispose();
       }
       clouds.length = 0;
-      if (trailed) root.remove(trailed.object);
-      trailed = null;
+      for (const mine of trailed.values()) root.remove(mine.object);
+      trailed.clear();
       field = [];
     },
   };

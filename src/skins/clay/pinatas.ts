@@ -38,7 +38,7 @@
 
 import * as THREE from 'three';
 
-import type { Racer } from '../../game/items';
+import type { Racer } from '../../game/seat';
 import type { Physics } from '../../game/physics';
 import { CHAIR } from '../../office/metrics';
 import { confetti, pinata } from './itemArt';
@@ -142,6 +142,8 @@ type Burst = {
 export type Pinatas = {
   group: THREE.Group;
   /**
+   * @param local  the seat being driven on this screen, which is the only thing
+   *               the near-cull below may be measured against — see `update`.
    * @param wants whether this chair is able to carry anything — a box standing in
    *              front of a chair that is already holding something is left
    *              standing, which is what every game of this kind does and is the
@@ -151,6 +153,7 @@ export type Pinatas = {
   update(
     dt: number,
     racers: readonly Racer[],
+    local: number,
     wants: (id: number) => boolean,
     onTake: (id: number) => void,
   ): void;
@@ -251,8 +254,20 @@ export function createPinatas(track: RoutePath, physics: Physics): Pinatas {
   return {
     group,
 
-    update(dt, racers, wants, onTake) {
-      const player = racers[0];
+    update(dt, racers, local, wants, onTake) {
+      /*
+       * Whose eyes the near-cull is for, and it is a rendering question rather
+       * than a rules one.
+       *
+       * A box is hidden past `SIGHT` so the room is not full of floating boxes;
+       * the pickup loop below ignores visibility entirely and lets any chair take
+       * any box it drives into. Measured against seat 0 that was right for as long
+       * as seat 0 was the chair on this screen. It is not any more — in a room the
+       * local player can be anywhere on the grid — and getting it wrong is not
+       * subtle: every box on the lap culls against somebody else's position, so
+       * they vanish and reappear according to where a stranger is driving.
+       */
+      const eyes = racers[local];
 
       for (const box of boxes) {
         if (box.gone > 0) {
@@ -267,10 +282,10 @@ export function createPinatas(track: RoutePath, physics: Physics): Pinatas {
         if (box.grow < 1) box.grow = Math.min(1, box.grow + dt / 0.35);
 
         let near = true;
-        if (player) {
-          const dx = player.position.x - box.at.x;
-          const dy = player.position.y - box.at.y;
-          const dz = player.position.z - box.at.z;
+        if (eyes) {
+          const dx = eyes.position.x - box.at.x;
+          const dy = eyes.position.y - box.at.y;
+          const dz = eyes.position.z - box.at.z;
           near = dx * dx + dy * dy + dz * dz < SIGHT * SIGHT;
         }
         box.object.visible = near;

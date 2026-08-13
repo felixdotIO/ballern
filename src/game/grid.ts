@@ -101,7 +101,7 @@ export const ACROSS: readonly [number, number] = [RUN[1], -RUN[0]];
 export const GRID_YAW = Math.atan2(RUN[0], RUN[1]) + Math.PI;
 
 /**
- * The four slots the computer starts in, in grid order — P1 first.
+ * Every slot on the grid, in grid order — P1 first, the back marker last.
  *
  * Two columns, 1.24 m apart, which is a chair and a half: any tighter and the
  * outside two are in the furniture (`hall.armchair.b` is 1.1 m off the line's
@@ -112,30 +112,44 @@ export const GRID_YAW = Math.atan2(RUN[0], RUN[1]) + Math.PI;
  * needs a metre more depth than this floor has — and staggering three rows into
  * 4.3 m means row three sits in row one's mirrors rather than beside anybody,
  * which is a queue drawn diagonally. Two clean rows and a back marker is a grid.
+ *
+ * ---- why this is one list and not four-plus-one -------------------------
+ *
+ * It was two exports for as long as there was exactly one person on the grid: the
+ * four the computer used, and the player's, kept apart because the player's is
+ * different — centred, at the back, and the one the character select photographs.
+ *
+ * That difference is real and it is *positional*, not personal. The back slot is
+ * still centred and still the one a portrait is taken in; what has changed is that
+ * a person is no longer guaranteed to be the one sitting in it. With up to five
+ * people on a grid built for five, "the player's slot" is not a slot, it is a
+ * question about the seating — so the geometry is one list and who takes which
+ * entry is decided elsewhere.
+ *
+ * **Five is the ceiling, and it is the floor's, not the code's.** Probed against
+ * the solver, the clear run behind the line is about 4.3 m before `facade.east.hall.0`
+ * — the east glazing. A sixth slot does not fit behind the fifth and a sixth
+ * column does not fit beside the others. Adding one means moving the start line.
  */
-export const GRID: readonly GridSlot[] = [
+export const GRID_SLOTS: readonly GridSlot[] = [
   { back: 1.0, lane: -0.62 },
   { back: 1.0, lane: 0.62 },
   { back: 2.3, lane: -0.62 },
   { back: 2.3, lane: 0.62 },
+  { back: 3.5, lane: 0 },
 ];
 
 /**
- * And the player's, at the back of it.
+ * The back marker, named because two other things point at it.
  *
- * Last, deliberately, and it is the one thing about the old arrangement that was
- * right: the chase camera sits three and a half metres behind the chair, so any
- * rival starting behind the player is a rival between the player and the lens —
- * the opening shot of every race becomes four chair backs with the player
- * somewhere beyond them. Ahead of the player they are the race, framed. A grid
- * position you have to work your way off is also simply better: five chairs, four
- * of them in front, is a first corner worth arriving at.
- *
- * Centred rather than in a column, because it is the only slot with nobody beside
- * it and because this is the chair the character select is a portrait of — a
- * subject squared up with the shot beats one 620 mm off it.
+ * `plan.ts` writes out `SPAWN` as this slot already evaluated — it has to, because
+ * that declaration sits above `ROUTE` and half the building is built off it — and
+ * its comment says the numbers are `slotAt(PLAYER_SLOT)`. Keeping the name keeps
+ * that sentence true. The solo seating in `main.ts` is the other: one person on
+ * the grid starts here, which is what makes the opening shot four chair backs
+ * ahead of you rather than a rival between you and the lens.
  */
-export const PLAYER_SLOT: GridSlot = { back: 3.5, lane: 0 };
+export const PLAYER_SLOT: GridSlot = GRID_SLOTS[GRID_SLOTS.length - 1]!;
 
 /** Where a slot is, in plan. */
 export function slotAt(slot: GridSlot): [number, number] {

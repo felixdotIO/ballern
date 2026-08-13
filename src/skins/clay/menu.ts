@@ -72,6 +72,36 @@ export type MenuHooks = {
     rider: Picker;
     ride: Picker;
   };
+  /**
+   * The room, if this build has one to offer.
+   *
+   * `available` is false when no room server was configured at build time, and the
+   * Multiplayer row is then not offered at all rather than offered and broken — see
+   * `MULTIPLAYER_AVAILABLE`. Everything else here is only ever called from the lobby
+   * sheet, which cannot be opened without it.
+   */
+  room: {
+    available: boolean;
+    /** Whatever there is to draw: null when we are not in a room. */
+    state(): RoomView | null;
+    name(): string;
+    setName(name: string): void;
+    create(): string;
+    join(code: string): void;
+    leave(): void;
+    setReady(ready: boolean): void;
+    start(): void;
+  };
+};
+
+/** What the lobby sheet draws. A snapshot, re-read on every `roomChanged`. */
+export type RoomView = {
+  code: string;
+  connected: boolean;
+  error: string | null;
+  isHost: boolean;
+  you: string;
+  members: readonly { id: string; name: string; rider: number; ready: boolean }[];
 };
 
 /**
@@ -95,6 +125,8 @@ export type Menu = {
   readonly open: boolean;
   show(): void;
   hide(): void;
+  /** The room said something. Redraw the lobby if it is up. */
+  roomChanged(): void;
 };
 
 type Row =
@@ -316,6 +348,41 @@ const CSS = `
   color: var(--paper);
 }
 #menu .briefing dd { margin: 0; color: var(--paper-2); }
+#menu .lobby .sheet { max-width: 560px; }
+#menu .lobby .field { display: flex; gap: 10px; align-items: center; margin: 0 0 12px; }
+#menu .lobby label {
+  font: 600 11px/1 ${FAMILY}; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--paper-2); min-width: 92px;
+}
+#menu .lobby input {
+  flex: 1; min-width: 0; background: rgba(0,0,0,.28); color: var(--paper);
+  border: 1px solid rgba(255,255,255,.16); border-radius: 6px;
+  padding: 9px 11px; font: 600 15px/1 ${FAMILY}; letter-spacing: .04em;
+}
+#menu .lobby input:focus { outline: none; border-color: var(--signal); }
+#menu .lobby input.code { text-transform: uppercase; letter-spacing: .3em; max-width: 150px; }
+#menu .lobby .acts { display: flex; gap: 10px; flex-wrap: wrap; margin: 16px 0 4px; }
+#menu .lobby button {
+  background: rgba(255,255,255,.07); color: var(--paper); cursor: pointer;
+  border: 1px solid rgba(255,255,255,.18); border-radius: 6px; padding: 9px 16px;
+  font: 700 12px/1 ${FAMILY}; letter-spacing: .12em; text-transform: uppercase;
+}
+#menu .lobby button.go { background: var(--signal); border-color: var(--signal); color: #12100e; }
+#menu .lobby button:disabled { opacity: .35; cursor: default; }
+#menu .lobby .seats { list-style: none; margin: 14px 0 0; padding: 0; }
+#menu .lobby .seats li {
+  display: flex; align-items: center; gap: 11px; padding: 7px 0;
+  border-top: 1px solid rgba(255,255,255,.09);
+}
+#menu .lobby .seats img { width: 34px; height: 34px; border-radius: 5px; background: rgba(0,0,0,.3); }
+#menu .lobby .seats .who { flex: 1; font: 600 14px/1.2 ${FAMILY}; }
+#menu .lobby .seats .tag {
+  font: 700 10px/1 ${FAMILY}; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--paper-2);
+}
+#menu .lobby .seats .tag.set { color: var(--signal); }
+#menu .lobby .note { color: var(--paper-2); font: 400 13px/1.5 ${FAMILY}; margin: 12px 0 0; }
+#menu .lobby .bad { color: #e8705a; }
 #menu .briefing .dismiss {
   margin-top: 24px;
   font-size: 12px;
@@ -896,7 +963,137 @@ export function createMenu(hooks: MenuHooks): Menu {
   briefing.append(sheet);
   briefing.addEventListener('click', () => read(false));
 
-  root.append(art, rail, briefing);
+  /*
+   * ---- the lobby -----------------------------------------------------------
+   *
+   * A sheet over the same overlay the briefing uses, and deliberately the same
+   * furniture: this is a beta bolted onto a finished front end, and inventing a
+   * second visual language for it would make it look more finished than it is.
+   *
+   * Built once and updated in place rather than redrawn. The two text fields are real
+   * inputs holding real values — a repaint that replaced them would take the caret
+   * out from under somebody mid-way through typing a room code, and the guest list
+   * updates every time anybody in the room so much as changes their driver.
+   */
+  const lobby = el('div', 'briefing lobby');
+  const lobbySheet = el('div', 'sheet');
+  lobbySheet.innerHTML = `
+    <div class="kicker">Level 6 · Multiplayer · Beta</div>
+    <h2 class="hd">Get a room.</h2>
+    <p>Up to five chairs. Whoever does not turn up is driven by the office.</p>
+    <div class="field"><label for="lb-name">Name</label><input id="lb-name" maxlength="14" placeholder="who are you"></div>
+    <div class="field"><label for="lb-code">Room</label><input id="lb-code" class="code" maxlength="4" placeholder="ABCD"></div>
+    <div class="acts">
+      <button data-act="create">Create a room</button>
+      <button data-act="join">Join</button>
+      <button data-act="ready">Ready</button>
+      <button data-act="start" class="go">Start race</button>
+      <button data-act="leave">Leave</button>
+    </div>
+    <ul class="seats"></ul>
+    <p class="note"></p>
+    <div class="dismiss">Esc to go back</div>`;
+  lobby.append(lobbySheet);
+
+  const nameInput = lobbySheet.querySelector('#lb-name') as HTMLInputElement;
+  const codeInput = lobbySheet.querySelector('#lb-code') as HTMLInputElement;
+  const seatList = lobbySheet.querySelector('.seats') as HTMLElement;
+  const note = lobbySheet.querySelector('.note') as HTMLElement;
+  const act = (name: string): HTMLButtonElement =>
+    lobbySheet.querySelector(`[data-act="${name}"]`) as HTMLButtonElement;
+
+  let inLobby = false;
+
+  function paintLobby(): void {
+    if (!inLobby) return;
+    const view = hooks.room.state();
+    const inRoom = !!view;
+
+    act('create').disabled = inRoom;
+    act('join').disabled = inRoom || codeInput.value.trim().length !== 4;
+    act('ready').disabled = !inRoom;
+    act('leave').disabled = !inRoom;
+    // Only the host may start, and only once there is a room to start. One person in
+    // a room is a legal race — four rails and you — so there is no minimum beyond it.
+    act('start').disabled = !view?.isHost;
+    act('start').style.display = view?.isHost ? '' : 'none';
+
+    const me = view?.members.find((m) => m.id === view.you);
+    act('ready').textContent = me?.ready ? 'Not ready' : 'Ready';
+
+    seatList.innerHTML = '';
+    for (const m of view?.members ?? []) {
+      const row = el('li');
+      const face = document.createElement('img');
+      face.src = hooks.garage.rider.art[m.rider] ?? '';
+      face.alt = '';
+      const who = el('span', 'who', `${m.name || 'Somebody'}${m.id === view?.you ? ' (you)' : ''}`);
+      const tag = el('span', `tag${m.ready ? ' set' : ''}`, m.ready ? 'Ready' : 'Choosing');
+      row.append(face, who, tag);
+      seatList.append(row);
+    }
+
+    if (view?.error) {
+      note.className = 'note bad';
+      note.textContent = view.error;
+    } else if (!inRoom) {
+      note.className = 'note';
+      note.textContent = 'Create a room and pass the code on, or type one in to join.';
+    } else {
+      note.className = 'note';
+      const n = view.members.length;
+      note.textContent = `Room ${view.code} · ${n} of 5 · the office drives the other ${5 - n}. ${
+        view.isHost ? 'You are the host; start when everybody is in.' : 'Waiting for the host to start.'
+      }`;
+    }
+  }
+
+  function showLobby(on: boolean): void {
+    inLobby = on;
+    lobby.classList.toggle('on', on);
+    if (on) {
+      nameInput.value = hooks.room.name();
+      paintLobby();
+      // Focus the field somebody is most likely to want, but only the first time —
+      // coming back to a room they are already in, the code is settled.
+      if (!hooks.room.state()) nameInput.focus();
+    }
+  }
+
+  nameInput.addEventListener('input', () => hooks.room.setName(nameInput.value));
+  codeInput.addEventListener('input', () => {
+    codeInput.value = codeInput.value.toUpperCase().replace(/[^A-Z]/g, '');
+    paintLobby();
+  });
+  lobbySheet.addEventListener('click', (e) => {
+    const button = (e.target as HTMLElement).closest('[data-act]') as HTMLButtonElement | null;
+    if (!button || button.disabled) return;
+    switch (button.dataset.act) {
+      case 'create':
+        codeInput.value = hooks.room.create();
+        break;
+      case 'join':
+        hooks.room.join(codeInput.value.trim().toUpperCase());
+        break;
+      case 'ready': {
+        const view = hooks.room.state();
+        hooks.room.setReady(!view?.members.find((m) => m.id === view.you)?.ready);
+        break;
+      }
+      case 'start':
+        showLobby(false);
+        hide();
+        hooks.room.start();
+        break;
+      case 'leave':
+        hooks.room.leave();
+        codeInput.value = '';
+        break;
+    }
+    paintLobby();
+  });
+
+  root.append(art, rail, briefing, lobby);
   document.body.append(root);
 
   let open = false;
@@ -1120,6 +1317,11 @@ export function createMenu(hooks: MenuHooks): Menu {
           ] as Row[])
         : ([
             { kind: 'button', label: 'Start Race', primary: true, enter: () => (hide(), hooks.start()) },
+            // Additive, and only when there is a room server to talk to. A build with
+            // none is the game exactly as it shipped, with no dead button on it.
+            ...(hooks.room.available
+              ? ([{ kind: 'button', label: 'Multiplayer (Beta)', enter: () => showLobby(true) }] as Row[])
+              : []),
             { kind: 'button', label: 'Briefing', enter: () => read(true) },
           ] as Row[])),
     ];
@@ -1139,6 +1341,12 @@ export function createMenu(hooks: MenuHooks): Menu {
     open = false;
     reading = false;
     briefing.classList.remove('on');
+    // The lobby closes with the menu it sits on. It is not enough to hide the overlay
+    // and leave the sheet: the room can start a race from under a player who is still
+    // looking at the guest list — that is the whole point of the host holding the
+    // button — and a sheet left `on` would leave them driving behind it.
+    inLobby = false;
+    lobby.classList.remove('on');
     root.classList.remove('on');
   }
 
@@ -1171,6 +1379,20 @@ export function createMenu(hooks: MenuHooks): Menu {
       }
 
       e.stopPropagation();
+
+      /*
+       * The lobby has real text fields in it, and a menu that eats every keystroke
+       * cannot have those. Escape closes the sheet; everything else goes to whatever
+       * is focused. `stopPropagation` above still stands, so nothing typed into a room
+       * code reaches the car.
+       */
+      if (inLobby) {
+        if (e.code === 'Escape') {
+          e.preventDefault();
+          showLobby(false);
+        }
+        return;
+      }
 
       if (reading) {
         e.preventDefault();
@@ -1225,6 +1447,7 @@ export function createMenu(hooks: MenuHooks): Menu {
   );
 
   return {
+    roomChanged: paintLobby,
     get open() {
       return open;
     },

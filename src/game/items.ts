@@ -44,6 +44,8 @@
  * `rivals.ts` having to be cranked up past the 12% it can get away with.
  */
 
+import type { Racer } from './seat';
+
 export type ItemKind = 'extinguisher' | 'microwave' | 'training' | 'puddle' | 'huddle';
 
 export const ITEMS: Record<ItemKind, { label: string; short: string; colour: number }> = {
@@ -133,25 +135,6 @@ export function drawItem(place: number, rng: () => number): ItemKind {
   return row[0]![0];
 }
 
-/**
- * A chair, as much of one as the item rules need to see.
- *
- * Index 0 is always the player. `progress` is total route distance driven and is
- * the same quantity on the same scale for everybody — see the long note on
- * `State.progress` in `rivals.ts`, which is what makes standings, targeting and
- * the finish one comparison rather than three.
- */
-export type Racer = {
-  readonly id: number;
-  readonly position: { x: number; y: number; z: number };
-  readonly yaw: number;
-  readonly progress: number;
-  /** Seconds of spin-out left. Nothing throws at a chair that is already out. */
-  readonly stunned: number;
-  /** True once it has taken the flag; a parked chair stops playing. */
-  readonly finished: boolean;
-};
-
 export type Slot = {
   /** What it is carrying, if anything. */
   held: ItemKind | null;
@@ -193,16 +176,22 @@ const GRACE = 4;
 
 export type ItemPlay = {
   readonly slots: readonly Slot[];
-  /** What the player is holding, for the HUD. */
-  readonly held: ItemKind | null;
+  /**
+   * What a given chair is carrying.
+   *
+   * Asked by id rather than answered for seat 0, because the chair the HUD draws
+   * for is whichever one is being driven on *this* screen, and in a room that is
+   * not necessarily the first one on the grid.
+   */
+  heldBy(id: number): ItemKind | null;
   /** A chair took a piñata. Ignored if it is already carrying something. */
   give(id: number, place: number): boolean;
   /** Can this chair take a piñata at all? Used to leave the box standing. */
   wants(id: number): boolean;
-  /** The player pressed a key. `backwards` is the Q. */
-  usePlayer(backwards: boolean): void;
-  /** The player is holding the fire key, so the item trails rather than flies. */
-  trailPlayer(down: boolean): void;
+  /** A person pressed the key. `backwards` is the Q. */
+  use(id: number, backwards: boolean): void;
+  /** A person is holding the fire key, so the item trails rather than flies. */
+  trail(id: number, down: boolean): void;
   /** A chair has been hit: drop what it was carrying and start its grace period. */
   struck(id: number): void;
   /**
@@ -225,10 +214,23 @@ export type ItemPlay = {
 export function createItemPlay(options: {
   size: number;
   rng: () => number;
+  /**
+   * Is this seat being driven by a person?
+   *
+   * A predicate rather than a set taken once, because who is in which seat is
+   * decided in a lobby and can differ from one race to the next, and a rule that
+   * cached the answer at construction would be wrong on the second race.
+   *
+   * Two rules hang off it, and both used to be spelled `id === 0`: a person draws
+   * an item and may use it immediately, where a rival waits a beat; and a person
+   * throws by pressing a key, where a rival decides for itself. Neither is about
+   * being *first* on the grid, which is all `id === 0` ever actually meant.
+   */
+  human(id: number): boolean;
   /** Throw something. `backwards` fires it out the back. */
   fire(kind: ItemKind, owner: Racer, backwards: boolean): void;
 }): ItemPlay {
-  const { size, rng, fire } = options;
+  const { size, rng, human, fire } = options;
 
   const slots: Slot[] = Array.from({ length: size }, () => ({
     held: null,
@@ -317,8 +319,8 @@ export function createItemPlay(options: {
   return {
     slots,
 
-    get held() {
-      return slots[0]?.held ?? null;
+    heldBy(id) {
+      return slots[id]?.held ?? null;
     },
 
     wants(id) {
@@ -333,13 +335,13 @@ export function createItemPlay(options: {
       // A rival waits a beat before using what it drew, staggered per chair so
       // four of them taking the same row do not all throw on the same frame —
       // which reads as one event rather than four, and is unsurvivable besides.
-      slot.thinking = id === 0 ? 0 : 0.5 + rng() * 1.1;
+      slot.thinking = human(id) ? 0 : 0.5 + rng() * 1.1;
       return true;
     },
 
-    usePlayer(backwards) {
-      const slot = slots[0];
-      const me = field[0];
+    use(id, backwards) {
+      const slot = slots[id];
+      const me = field[id];
       if (!slot || !me || !slot.held) return;
       const kind = slot.held;
       slot.held = null;
@@ -347,8 +349,8 @@ export function createItemPlay(options: {
       fire(kind, me, backwards);
     },
 
-    trailPlayer(down) {
-      const slot = slots[0];
+    trail(id, down) {
+      const slot = slots[id];
       if (slot) slot.trailing = down && slot.held !== null;
     },
 
@@ -405,8 +407,8 @@ export function createItemPlay(options: {
         if (slot.immune > 0) slot.immune = Math.max(0, slot.immune - h);
         if (slot.thinking > 0) slot.thinking = Math.max(0, slot.thinking - h);
 
-        // The player throws by pressing a key; everyone else decides here.
-        if (racer.id === 0 || !slot.held) continue;
+        // A person throws by pressing a key; everyone else decides here.
+        if (human(racer.id) || !slot.held) continue;
         if (clock < GRACE || racer.stunned > 0 || racer.finished) continue;
         if (slot.thinking > 0) continue;
         rivalPlay(racer, slot);
