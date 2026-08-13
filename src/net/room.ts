@@ -25,9 +25,35 @@ import {
   type ServerMessage,
 } from './protocol';
 
-/** Where the room server lives. Unset in a checkout with no worker configured. */
-export const ROOM_URL: string | undefined =
-  (import.meta.env.VITE_ROOM_URL as string | undefined) || undefined;
+/**
+ * Where the room server lives, normalised.
+ *
+ * What `wrangler deploy` prints is `https://ballern-rooms.<subdomain>.workers.dev`,
+ * and what people paste into an environment variable is usually that, or the bare
+ * host with no scheme at all. Neither is a URL `new WebSocket` will take: it wants
+ * an absolute ws: or wss: address and throws a SyntaxError on anything else. The
+ * failure is then a row that appears and a Join that does nothing.
+ *
+ * So the three forms anybody would reasonably write all mean the same thing here:
+ *
+ *   ballern-rooms.example.workers.dev   ->  wss://ballern-rooms.example.workers.dev
+ *   https://ballern-rooms.example…      ->  wss://ballern-rooms.example…
+ *   http://localhost:8787               ->  ws://localhost:8787
+ *
+ * A bare host defaults to the secure scheme rather than the insecure one, because a
+ * deployed game is served over HTTPS and a browser blocks a plain ws: socket from a
+ * secure page. Local development says `ws://localhost` explicitly and keeps it.
+ */
+function normaliseRoomUrl(raw: string | undefined): string | undefined {
+  const value = (raw ?? '').trim().replace(/\/+$/, '');
+  if (!value) return undefined;
+  if (value.startsWith('ws://') || value.startsWith('wss://')) return value;
+  if (value.startsWith('https://')) return `wss://${value.slice('https://'.length)}`;
+  if (value.startsWith('http://')) return `ws://${value.slice('http://'.length)}`;
+  return `wss://${value}`;
+}
+
+export const ROOM_URL: string | undefined = normaliseRoomUrl(import.meta.env.VITE_ROOM_URL);
 
 /** Whether multiplayer can be offered at all. The menu row reads this. */
 export const MULTIPLAYER_AVAILABLE = !!ROOM_URL;
@@ -72,7 +98,7 @@ export function joinRoom(
   if (!ROOM_URL) throw new Error('no room server configured (VITE_ROOM_URL)');
 
   const clock = createClock();
-  const socket = new WebSocket(`${ROOM_URL.replace(/\/$/, '')}/room/${code}`);
+  const socket = new WebSocket(`${ROOM_URL}/room/${code}`);
 
   let you = '';
   let host = '';

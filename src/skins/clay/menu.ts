@@ -1093,7 +1093,21 @@ export function createMenu(hooks: MenuHooks): Menu {
   function paintLobby(): void {
     if (!inLobby) return;
     const view = hooks.room.state();
-    const inRoom = !!view;
+    /*
+     * "In a room" means the room has said hello back, not that a socket object was
+     * constructed.
+     *
+     * This read `!!view`, which is true the instant `joinRoom` returns — before the
+     * connection has opened, and just as true if it never does. So a room server that
+     * was not running produced a lobby showing a room code, a Ready button and a
+     * Leave button for a room that does not exist, with one line of red underneath
+     * as the only clue. You could sit there reading a code to somebody down the phone.
+     *
+     * `you` is only set when a welcome arrives, so the two together are the honest
+     * test: still connected, and acknowledged.
+     */
+    const inRoom = !!view && view.connected && !!view.you;
+    const trying = !!view && !inRoom && !view.error;
 
     /*
      * Two states, and only one of them on screen at a time.
@@ -1132,7 +1146,12 @@ export function createMenu(hooks: MenuHooks): Menu {
 
     if (view?.error) {
       note.className = 'note bad';
-      note.textContent = view.error;
+      // The controls are back on screen behind this, so it can say what to do next
+      // rather than just what went wrong.
+      note.textContent = `${view.error} Check the room server is running, then try again.`;
+    } else if (trying) {
+      note.className = 'note';
+      note.textContent = 'Connecting…';
     } else if (!inRoom) {
       note.className = 'note';
       note.textContent = 'Create a room and pass the code on, or type one in to join.';
