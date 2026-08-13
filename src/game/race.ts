@@ -82,13 +82,27 @@ export type Race = {
 };
 
 /**
+ * How long one numeral of the 3-2-1 is on screen, seconds.
+ *
+ * It used to be a whole second, implicitly — the countdown was three seconds and the
+ * number shown was `ceil` of what was left, so the beat and the unit were the same
+ * thing and neither could move without the other. Three seconds of waiting is a long
+ * time in front of a grid you are already looking at, and on top of the room's own
+ * lead-in it was most of why starting felt slow.
+ *
+ * 0.62 is about as quick as three numerals can go and still be read as three rather
+ * than as a flicker: near enough a beat at 96 bpm, which is the rate a person counts
+ * themselves in at. The whole thing is now under two seconds.
+ */
+export const BEAT = 0.62;
+
+/**
  * Seconds of 3-2-1 before the clock starts.
  *
- * Exactly three, so that `ceil` of what is left is the number to show and the
- * first frame reads 3 rather than 4. The GO is not part of it — it belongs to
- * the first moment of the race, not to the last of the wait.
+ * Three beats exactly, so the first frame reads 3 rather than 4. The GO is not part
+ * of it — it belongs to the first moment of the race, not to the last of the wait.
  */
-const COUNTDOWN = 3;
+const COUNTDOWN = BEAT * 3;
 
 /** How far past a gate the guidance chevron aims. */
 const AIM_THROUGH = 6;

@@ -37,7 +37,7 @@
 import type * as THREE from 'three';
 
 import { CHARGE_FULL, type Trick } from '../../game/chair';
-import { formatTime, type Race } from '../../game/race';
+import { BEAT, formatTime, type Race } from '../../game/race';
 import { GATES } from '../../office/plan';
 import { createMinimap, MINIMAP_CSS } from '../../ui/minimap';
 import { createGauge } from './gauge';
@@ -495,7 +495,10 @@ export function createClayHud(): ClayHud {
       // -- countdown ---------------------------------------------------------
       const go = phase === 'racing' && race.totalTime < GO_FOR;
       if (phase === 'countdown' || go) {
-        const text = go ? 'Go' : String(Math.max(1, Math.ceil(race.countdown)));
+        // Which numeral, in beats rather than in seconds — see `BEAT` in race.ts. The
+        // two were the same number for as long as a beat was a second, and this is
+        // the line that quietly assumed it.
+        const text = go ? 'Go' : String(Math.max(1, Math.ceil(race.countdown / BEAT)));
         if (text !== last.countText) {
           last.countText = text;
           countIn.textContent = text;
@@ -507,12 +510,16 @@ export function createClayHud(): ClayHud {
         // animation started on whatever frame the class changed drifts out of step
         // within two ticks, and a countdown a frame out of step with itself is the one
         // piece of interface a player notices every single time.
-        const elapsed = go ? race.totalTime : 1 - (race.countdown - Math.floor(race.countdown));
-        const span = go ? GO_FOR : 1;
-        const settle = Math.min(1, elapsed / 0.16);
+        const intoBeat = race.countdown - Math.floor(race.countdown / BEAT) * BEAT;
+        const elapsed = go ? race.totalTime : BEAT - intoBeat;
+        const span = go ? GO_FOR : BEAT;
+        // Snappier than it was, and proportional to the beat rather than fixed: at
+        // 0.62s a settle that took 0.16 spent a quarter of the numeral's life still
+        // arriving, which is exactly the softness that reads as lag.
+        const settle = Math.min(1, elapsed / (span * 0.17));
         const leave = Math.max(0, (elapsed - span * 0.62) / (span * 0.38));
-        countIn.style.transform = `scale(${(1.3 - 0.3 * settle).toFixed(3)})`;
-        countIn.style.opacity = (Math.min(1, elapsed / 0.09) * (1 - leave * 0.92)).toFixed(3);
+        countIn.style.transform = `scale(${(1.34 - 0.34 * settle).toFixed(3)})`;
+        countIn.style.opacity = (Math.min(1, elapsed / (span * 0.1)) * (1 - leave * 0.92)).toFixed(3);
       } else if (last.countText !== '') {
         last.countText = '';
         setHidden(countIn, true);

@@ -221,32 +221,18 @@ export class Room {
         me.ready = !!msg.ready;
         ws.serializeAttachment(me);
         this.announce();
+        // Everybody said yes, so nothing is waiting on anything. Pressing ready and
+        // then watching for somebody else to press a second button is a room full of
+        // people looking at each other.
+        const present = this.members();
+        if (present.length && present.every((m) => m.ready)) this.begin();
         return;
       }
 
       case 'start': {
+        // The host may go without waiting — somebody is always still picking a chair.
         if (me.id !== this.host) return;
-        const present = this.members();
-        if (!present.length) return;
-        // Seats are dealt here, once, so that everybody has the same answer without
-        // having to derive it. Lobby order is grid order: first in, first slot.
-        const seating = present.map((m, i) => ({ id: m.id, seat: i }));
-        for (const ws2 of this.sockets()) {
-          const a = this.attach(ws2);
-          if (!a) continue;
-          const seat = seating.find((s) => s.id === a.id);
-          a.seat = seat ? seat.seat : -1;
-          a.ready = false;
-          ws2.serializeAttachment(a);
-        }
-        this.broadcast({
-          type: 'start',
-          seed: (Math.random() * 0xffffffff) >>> 0,
-          // Far enough out that the slowest client still has it before it fires; the
-          // three-second countdown in `race.ts` absorbs whatever is left over.
-          at: Date.now() / 1000 + 1.5,
-          seating,
-        });
+        this.begin();
         return;
       }
 
@@ -276,6 +262,45 @@ export class Room {
         return;
       }
     }
+  }
+
+  /**
+   * Deal the grid and drop the flag.
+   *
+   * Reached two ways — everybody readying up, or the host going without them — and
+   * it has to be the same code both times, because what it settles is what the race
+   * *is*: who is in which seat, and the instant it begins.
+   *
+   * Ready flags are cleared on the way out, so the race that just started cannot
+   * immediately start again when the next `ready` arrives.
+   */
+  private begin(): void {
+    const present = this.members();
+    if (!present.length) return;
+    // Lobby order is grid order: first in, first slot.
+    const seating = present.map((m, i) => ({ id: m.id, seat: i }));
+    for (const ws of this.sockets()) {
+      const a = this.attach(ws);
+      if (!a) continue;
+      const seat = seating.find((s) => s.id === a.id);
+      a.seat = seat ? seat.seat : -1;
+      a.ready = false;
+      ws.serializeAttachment(a);
+    }
+    this.broadcast({
+      type: 'start',
+      seed: (Math.random() * 0xffffffff) >>> 0,
+      /*
+       * Far enough out that the slowest client has the message before it fires, and
+       * no further. It was a second and a half, which is a second and a half of
+       * nothing on screen before a countdown that is itself a wait — the two
+       * together were most of why starting a race felt slow. 600 ms covers a
+       * transatlantic round trip with room to spare, and the countdown absorbs
+       * whatever skew is left.
+       */
+      at: Date.now() / 1000 + 0.6,
+      seating,
+    });
   }
 
   /**

@@ -59,6 +59,7 @@
  */
 
 import { el, FAMILY, installLook } from './look';
+import { CODE_ALPHABET } from '../../net/protocol';
 
 export type MenuHooks = {
   /** Whether there is a race in progress to go back to. */
@@ -1220,7 +1221,9 @@ export function createMenu(hooks: MenuHooks): Menu {
       note.className = 'note';
       const n = view.members.length;
       note.textContent = `Room ${view.code} · ${n} of 5 · the office drives the other ${5 - n}. ${
-        view.isHost ? 'You are the host; start when everybody is in.' : 'Waiting for the host to start.'
+        view.isHost
+          ? 'It starts when everybody is ready — or start now without them.'
+          : 'It starts when everybody is ready.'
       }`;
     }
   }
@@ -1242,7 +1245,18 @@ export function createMenu(hooks: MenuHooks): Menu {
     paintLobby();
   });
   codeInput.addEventListener('input', () => {
-    codeInput.value = codeInput.value.toUpperCase().replace(/[^A-Z]/g, '');
+    /*
+     * Filtered to the alphabet a code can actually contain, not merely to letters.
+     *
+     * `I` and `O` are excluded from room codes because they are misread as 1 and 0
+     * when somebody says one out loud — but the field accepted them, so you could
+     * type a four-letter code that the room server is obliged to reject, and the
+     * failure arrived as "could not reach the room server". Which is true, and no
+     * help at all. Now they simply do not go in.
+     */
+    codeInput.value = [...codeInput.value.toUpperCase()]
+      .filter((ch) => CODE_ALPHABET.includes(ch))
+      .join('');
     paintLobby();
   });
   lobbySheet.addEventListener('click', (e) => {
