@@ -427,6 +427,42 @@ const CSS = `
 #menu .lobby button.go { background: var(--hot); border-color: var(--hot); color: var(--ink); }
 #menu .lobby button:disabled { opacity: .35; cursor: default; }
 #menu .lobby .field button { flex: 0 0 auto; }
+/*
+ * The two ways in, side by side.
+ *
+ * Stacked, they read as a sequence — make a room, and then, underneath, a code
+ * field, which looks like a second step of the same thing rather than the other
+ * option. They are alternatives, so they sit as alternatives, divided by a rule, and
+ * each says what it gives you.
+ */
+#menu .lobby .choices {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin: 18px 0 2px;
+}
+#menu .lobby .choice {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 9px;
+  padding-right: clamp(14px, 2vw, 24px);
+}
+#menu .lobby .choice + .choice {
+  padding-right: 0; padding-left: clamp(14px, 2vw, 24px);
+  border-left: 1px solid rgba(246, 239, 226, 0.12);
+}
+#menu .lobby .ch-h {
+  font: 700 11px/1 ${FAMILY}; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--paper-2);
+}
+#menu .lobby .ch-n { font: 400 12.5px/1.35 ${FAMILY}; color: var(--paper-3); }
+#menu .lobby .joiner { display: flex; gap: 8px; align-items: center; }
+#menu .lobby .joiner input { max-width: 116px; }
+/* A sheet this narrow cannot hold two columns; below that they stack and the rule
+   becomes a horizontal one, which is the same statement in the space available. */
+@media (max-width: 620px) {
+  #menu .lobby .choices { grid-template-columns: 1fr; gap: 16px; }
+  #menu .lobby .choice { padding-right: 0; }
+  #menu .lobby .choice + .choice {
+    padding-left: 0; padding-top: 16px;
+    border-left: 0; border-top: 1px solid rgba(246, 239, 226, 0.12);
+  }
+}
 #menu .lobby .share {
   display: flex; align-items: center; gap: 12px; margin: 16px 0 4px;
   padding: 12px 14px; border-radius: 8px; background: rgba(0,0,0,.28);
@@ -1053,11 +1089,20 @@ export function createMenu(hooks: MenuHooks): Menu {
     <p>Up to five chairs. Whoever does not turn up is driven by the office.</p>
     <div class="field"><label for="lb-name">Name</label><input id="lb-name" maxlength="14" placeholder="who are you"></div>
     <div class="outside">
-      <div class="acts"><button data-act="create" class="go">Create a room</button></div>
-      <div class="field">
-        <label for="lb-code">Got a code?</label>
-        <input id="lb-code" class="code" maxlength="4" placeholder="ABCD" autocomplete="off" spellcheck="false">
-        <button data-act="join">Join</button>
+      <div class="choices">
+        <div class="choice">
+          <span class="ch-h">Start one</span>
+          <button data-act="create" class="go">Create a room</button>
+          <span class="ch-n">You get a code to pass on.</span>
+        </div>
+        <div class="choice">
+          <span class="ch-h">Join one</span>
+          <div class="joiner">
+            <input id="lb-code" class="code" maxlength="4" placeholder="ABCD" autocomplete="off" spellcheck="false">
+            <button data-act="join">Join</button>
+          </div>
+          <span class="ch-n">Four letters from whoever made it.</span>
+        </div>
       </div>
     </div>
     <div class="inside">
@@ -1123,7 +1168,21 @@ export function createMenu(hooks: MenuHooks): Menu {
     // how you leave it. On a short window the important half is the half on screen.
     for (const part of insides) part.style.display = inRoom ? '' : 'none';
 
-    act('join').disabled = codeInput.value.trim().length !== 4;
+    /*
+     * Nothing happens without a name.
+     *
+     * A room is a list of people, and somebody who arrives as a blank row is a chair
+     * nobody can talk about — "wait for the other one" rather than "wait for Sam".
+     * The old flow let you straight in and only asked afterwards, by which point the
+     * lobby was already showing a nameless entry to everybody else.
+     *
+     * Gated rather than validated on submit: the buttons are simply not available
+     * until there is a name, which says the same thing without an error message.
+     */
+    const named = nameInput.value.trim().length > 0;
+    act('create').disabled = !named;
+    codeInput.disabled = !named;
+    act('join').disabled = !named || codeInput.value.trim().length !== 4;
     // Only the host may start. One person in a room is a legal race — four rails and
     // you — so there is no minimum beyond that.
     act('start').style.display = view?.isHost ? '' : 'none';
@@ -1154,7 +1213,9 @@ export function createMenu(hooks: MenuHooks): Menu {
       note.textContent = 'Connecting…';
     } else if (!inRoom) {
       note.className = 'note';
-      note.textContent = 'Create a room and pass the code on, or type one in to join.';
+      note.textContent = named
+        ? 'Create a room and pass the code on, or type one in to join.'
+        : 'Put a name in first — it is what everybody else sees on the grid.';
     } else {
       note.className = 'note';
       const n = view.members.length;
@@ -1176,7 +1237,10 @@ export function createMenu(hooks: MenuHooks): Menu {
     }
   }
 
-  nameInput.addEventListener('input', () => hooks.room.setName(nameInput.value));
+  nameInput.addEventListener('input', () => {
+    hooks.room.setName(nameInput.value);
+    paintLobby();
+  });
   codeInput.addEventListener('input', () => {
     codeInput.value = codeInput.value.toUpperCase().replace(/[^A-Z]/g, '');
     paintLobby();

@@ -220,42 +220,117 @@ const CSS = `
 
 /* -- the module ------------------------------------------------------------ */
 
+/*
+ * ---- the compliance module ------------------------------------------------
+ *
+ * The one item that stops the game rather than shoving it, so it is the one that
+ * has to earn the interruption. It was a panel with four lines of text stacked on
+ * it and a hairline progress bar, which is a *label* for a training module rather
+ * than a training module — nothing about it said the thing the joke depends on,
+ * which is that somebody has been made to sit through corporate e-learning in the
+ * middle of a race.
+ *
+ * So it is drawn as the software it is pretending to be: a titled header strip with
+ * a seal in it, a body, and a footer where the progress and the clock live. The
+ * chrome is what sells it. A card with a header bar reads as an application; the
+ * same words with no bar read as a notification.
+ *
+ * Still no interaction anywhere on it, deliberately — there is nothing to click,
+ * which is the point. You wait.
+ */
 #items .module {
   position: absolute;
   top: 46%;
   left: 50%;
-  transform: translate(-50%, -50%) scale(0.9);
-  width: min(390px, 76vw);
-  padding: 20px 22px 18px;
+  transform: translate(-50%, -50%) scale(0.94);
+  width: min(420px, 82vw);
+  padding: 0;
+  overflow: hidden;
   text-align: left;
   opacity: 0;
+  border: 1px solid rgba(246, 239, 226, 0.13);
   transition: opacity 130ms ease, transform 240ms var(--pop);
 }
 #items .module.on { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+
+/* The header strip: the bit that makes it an application rather than a message. */
+#items .module .top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 16px;
+  background: rgba(246, 239, 226, 0.07);
+  border-bottom: 1px solid rgba(246, 239, 226, 0.11);
+}
+#items .module .seal {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  background: var(--pink);
+  color: #fff;
+  font: 800 12px/22px ${FAMILY};
+  text-align: center;
+  letter-spacing: 0;
+}
 #items .module .eyebrow {
-  font-size: 11.5px;
+  font-size: 11px;
   letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--paper-2);
+}
+/* Pushed to the right of the strip, where an application puts its status. */
+#items .module .state {
+  margin-left: auto;
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--pink);
 }
-#items .module h2 { margin: 5px 0 0; font-size: 25px; line-height: 1.08; letter-spacing: -0.02em; }
-#items .module p { margin: 9px 0 0; font-size: 13.5px; line-height: 1.35; color: var(--paper-2); }
+
+#items .module .body { padding: 15px 16px 14px; }
+#items .module h2 { margin: 0; font-size: 23px; line-height: 1.1; letter-spacing: -0.02em; }
+#items .module p {
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--paper-2);
+  /* Two lines at this width, and it must stay two: the card is on screen for as
+     long as the spin-out and a paragraph that reflows to three shifts the bar. */
+  max-width: 34em;
+}
+
 #items .module .bar {
-  margin-top: 15px;
-  height: 5px;
+  margin-top: 14px;
+  height: 6px;
   border-radius: 3px;
-  background: rgba(246, 239, 226, 0.16);
+  background: rgba(246, 239, 226, 0.14);
   overflow: hidden;
 }
-#items .module .bar i { display: block; height: 100%; width: 0%; background: var(--amber); }
+#items .module .bar i {
+  display: block;
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--amber) 0%, var(--pink) 100%);
+  /* No transition: the width is written every frame off the real timer, and easing
+     a value that is already smooth only makes it lag the thing it is reporting. */
+}
 #items .module .foot {
   margin-top: 9px;
   display: flex;
+  align-items: baseline;
   justify-content: space-between;
-  font-size: 11.5px;
+  font-size: 11px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--paper-3);
+}
+/* The number that answers the only question anybody has: how much longer. */
+#items .module .left {
+  font-size: 12.5px;
+  letter-spacing: 0.06em;
+  color: var(--paper);
+  font-variant-numeric: tabular-nums;
 }
 
 #items .hidden { display: none; }
@@ -291,18 +366,36 @@ export function createItemHud(): ItemHud {
   const powder = el('div', 'powder');
 
   const module = el('div', 'panel module');
+
+  // The header strip. A seal, what it is, and a status off to the right — the three
+  // things every piece of compliance software puts across its top.
+  const top = el('div', 'top');
+  top.append(
+    el('div', 'seal', '!'),
+    el('div', 'eyebrow ui', 'Mandatory Training'),
+    el('div', 'state ui', 'In progress'),
+  );
+
   const fill = el('i');
   const bar = el('div', 'bar');
   bar.append(fill);
-  module.append(
-    el('div', 'eyebrow ui', 'Mandatory Training'),
+
+  // How long is left, in seconds, and it is the only number on the card anybody
+  // actually wants. It was not there at all: the bar filled and you were expected to
+  // infer the rest from how fast it was moving.
+  const remaining = el('span', 'left', '');
+
+  const foot = el('div', 'foot ui');
+  foot.append(el('span', '', 'Module 1 of 1'), remaining);
+
+  const body = el('div', 'body');
+  body.append(
     el('h2', 'hd', 'Information Security 2026'),
     el('p', 'ui', 'This module must be completed before you continue driving. Please remain seated.'),
     bar,
+    foot,
   );
-  const foot = el('div', 'foot ui');
-  foot.append(el('span', '', 'Module 1 of 1'), el('span', '', 'Required'));
-  module.append(foot);
+  module.append(top, body);
 
   root.append(slot, powder, module);
   document.body.append(root);
@@ -358,6 +451,10 @@ export function createItemHud(): ItemHud {
         moduleFor -= dt;
         const done = 1 - Math.max(0, moduleFor) / moduleSpan;
         fill.style.width = `${(done * 100).toFixed(1)}%`;
+        // Rounded up, so the last whole second is shown as 1 rather than 0 — a
+        // counter that reads zero while the card is still up is a card that looks
+        // stuck at the exact moment somebody is waiting on it.
+        remaining.textContent = `${Math.max(1, Math.ceil(moduleFor))}s left`;
         if (moduleFor <= 0) module.classList.remove('on');
       }
     },
