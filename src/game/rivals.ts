@@ -187,8 +187,52 @@ const TUNING = {
   lookAhead: 3.5,
   /** Seconds to reach a new target speed. Chairs have no engine; nothing is instant. */
   responds: 0.55,
-  /** Fraction of base speed the rubber band may add or take away. */
-  band: 0.12,
+
+  /**
+   * The difficulty of the whole field, as one factor on every driver's pace.
+   *
+   * ---- why this exists, and why it is 0.84 ---------------------------------
+   *
+   * The roster's paces are *characterisation*: the sales guy is quicker than the
+   * new one because of who they are, and the 700 mm a second between the fastest
+   * and the slowest is the shape of the field. None of that says how hard the race
+   * should be, and it was doing both jobs — so the only way to make the game
+   * winnable was to rewrite seven lines of prose about people.
+   *
+   * Difficulty belongs in one number, and this is it. Measured at 1.0, timed over
+   * three laps with nobody in their way, the field laps in **85.7–87.7 s**. The
+   * lap is 389 m and the player's absolute top speed is 6.0 m/s, so 86 s is an
+   * average of 4.53 m/s — which means holding 75% of a flat-out sprint for the
+   * whole lap, through eleven doorways, a hairpin, two ramps and whatever is being
+   * thrown at you, without touching anything. A chair on rails can do that. Nobody
+   * driving can, and a player who is never once in front is not racing, they are
+   * watching. It is the whole of why the position readout said 5/5 all race, long
+   * after the arithmetic behind it was right.
+   *
+   * 0.84 puts the field at about 102–104 s a lap, which leaves a clean lap ahead
+   * of them and a scrappy one behind — the race being close is what the rubber
+   * band is then for, and it cannot do that job from twenty seconds down.
+   *
+   * This is the difficulty dial. Raise it for a harder field; the shape of the
+   * roster does not change.
+   */
+  paceScale: 0.84,
+
+  /**
+   * Fraction of base speed the rubber band may add or take away.
+   *
+   * Was 0.12, on the argument at the top of this file that rubber-banding hard is
+   * the thing players hate most about arcade racers. That argument is right and it
+   * assumed a field the player could live with in the first place. Against a field
+   * twenty seconds a lap quicker, a 12% band is not restraint, it is a rounding
+   * error on a race that was already over — the gap it is meant to close opens
+   * faster than it can pull.
+   *
+   * 0.18 with the pace above is still gentle: a rival 45 m clear gives back under
+   * a metre a second, so a good lap still shows on the gap and the field never
+   * reels you in for free. It is enough that one bad corner is not the race.
+   */
+  band: 0.18,
   /** Metres of gap at which the band is at full stretch. */
   bandFull: 45,
   /** Seconds to drift from a starting block across to a racing line. */
@@ -1045,7 +1089,7 @@ export function createRivals(
         // a push through a doorway faster than the line can be held is the same
         // mistake the band is stopped from making just above.
         const paced =
-          state.driver.pace * (state.blindFor > 0 ? TUNING.blindPace : 1) +
+          state.driver.pace * TUNING.paceScale * (state.blindFor > 0 ? TUNING.blindPace : 1) +
           (state.boostFor > 0 ? state.boost : 0);
         let target = Math.min(paced * band * drift, corner);
 
@@ -1241,5 +1285,22 @@ export function createRivals(
         settle(state);
       });
     },
+
+    /*
+     * Standings used to live here, and the last thing that happened to them before
+     * they left was a real fix: they were ranking the *odometer* rather than the
+     * road. `state.progress + state.grid.back` is how far a chair has driven from its
+     * own slot, so the field was sorted by distance travelled since the flag with
+     * every slot counting as its own start line — which on a 3.5 m grid is a
+     * different race, and reported 5th at -0.1 m and 1st at 0.0 with nobody moving.
+     *
+     * `state.progress` is the honest quantity: distance past the line, starting at
+     * `-back`, exactly as `reset` sets it.
+     *
+     * That fix is kept and is now applied to everybody, which is the other half of
+     * it. Ranking only the computer's chairs was right for exactly as long as the
+     * only person on the grid was the one reading the number, so the question moved
+     * to where the whole field is — see `placeOf` in `main.ts`.
+     */
   };
 }

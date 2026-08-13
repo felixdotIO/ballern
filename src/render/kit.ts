@@ -14,6 +14,7 @@
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 
 import { TINTS, asColor } from '../office/palette';
@@ -35,7 +36,17 @@ const LOD_DISTANCE = 6.5;
 const FABRIC_CHOICES = [TINTS.upholstery, TINTS.upholsteryAlt] as const;
 
 export async function loadKit(): Promise<void> {
-  const loader = new GLTFLoader();
+  /*
+   * The kit is meshopt-compressed and quantized on disk — see
+   * `tools/compress-kit.mjs`, which is what put it there and why.
+   *
+   * This is the whole of the loader end of that. `KHR_mesh_quantization` three
+   * has read natively for years; `EXT_meshopt_compression` needs a decoder, and
+   * the decoder is 25 kB against the 19 MB it saves. It has to be set before the
+   * first `load`, because a file that declares the extension as *required* — which
+   * these do — will refuse to parse without it rather than quietly come out wrong.
+   */
+  const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
   const manifest: [string, string][] = [
     ['taskChair', '/kit/task-chair.glb'],
     // The one being driven. Same chair with the armrests left off — see the note

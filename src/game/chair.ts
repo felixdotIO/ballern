@@ -148,28 +148,53 @@ const DRIVE = {
    * bring it all the way round or you land on your face, so it is a thing you
    * *commit* to and then either finish or do not.
    *
-   * So a flip is fired rather than held: one press of the throttle in the air
-   * starts a whole turn about the chair's own right axis, and it runs to
-   * completion on its own. Forward on W, backward on S, and it chains — the
-   * moment one comes round the next press starts another.
+   * So a flip is a whole turn about the chair's own right axis, started on demand
+   * and run to completion on its own rather than steered round by hand.
    *
-   * Fired on the *edge* rather than on the axis, and that is the whole of why it
-   * is playable. Almost everybody goes up a ramp with the throttle pinned, and a
-   * held throttle that flipped you would mean the game punishing the one input
-   * every player already has held down. A key that is already down when the
-   * castors leave the floor is not a press. Letting go and pressing again is, and
-   * that is a gesture you can decide to make with the ramp already under you.
+   * ---- and it is on the drift key, which is the second attempt ---------------
+   *
+   * The first version put it on the *throttle*, fired on the edge: let go of W in
+   * the air and press it again. The edge was there for a good reason — almost
+   * everybody goes up a ramp with the throttle pinned, and a held throttle that
+   * flipped you would be the game punishing the one input every player already has
+   * down — but the cure was worse. It asked the player to release the accelerator
+   * and re-press it inside the fifth of a second between the lip and the apex,
+   * having first worked out that this was a thing to try. Measured against the air
+   * this floor actually gives, that is not a hard trick, it is an impossible one:
+   * driven round a lap the game offers **one jump of 0.65 s**, and a flip took
+   * 0.45 s of it. Press late by two tenths and you land on your back.
+   *
+   * So it moves to the drift key, which is the only key on the pad with nothing to
+   * do off the ground: drift is a grip trick and there is no grip in the air. Hold
+   * it and the chair flips, once, and again while it is still held. Nothing to
+   * release, no edge to find, no conflict with the throttle — and drifting into a
+   * kicker now throws you into a flip, which is the right thing to reward.
+   *
+   * Backwards on S, because the brake is the only other axis with no airborne
+   * meaning and "lean back" is what it already means everywhere else.
    */
   /**
    * Rotation once a flip is under way, rad/s.
    *
-   * 14 brings a whole turn round in 0.45 s, which is not a number picked for how
-   * it looks — it is the air a kicker on this floor actually gives. Slower and a
-   * flip is a thing you can only ever bail; much faster and it is a strobe. As it
-   * stands one flip off a standard ramp is *just* landable and two is for the big
-   * kicker in the garage, which is the right shape for a trick.
+   * 22 brings a whole turn round in 0.29 s. It was 14 — a 0.45 s turn — chosen
+   * against a hypothetical ramp rather than a measured one, and it made a flip
+   * something you could only bail: the jump this floor actually gives is 0.65 s,
+   * so a turn taking 0.45 left a tenth of a second at each end to decide, react
+   * and land in. At 0.29 one flip fits inside that with room to spare and two fit
+   * on the big kicker, which is the shape a trick wants — comfortably possible,
+   * and still a decision.
    */
-  flipRate: 14,
+  flipRate: 22,
+  /**
+   * How much of a flip has to be round at touchdown for it to be called landed.
+   *
+   * A flip that is 85% of the way over when a castor touches is not a mistake, it
+   * is a jump that ran out of air by a frame or two, and failing it teaches
+   * nothing except not to try. Past this it is snapped home and paid; short of it
+   * it is a bail. The fail state stays real — start a flip halfway down and you
+   * still land on your back — it just stops firing on the near-misses.
+   */
+  flipGrace: 0.72,
   /**
    * How near level the seat has to be on touchdown, radians.
    *
@@ -291,6 +316,12 @@ export function tierOf(charge: number): number {
 
 /** m/s². The one physical constant the driving model does not make up. */
 const GRAVITY = 9.81;
+
+/** Straight down, for the ballistic look-ahead in `airLeft`. */
+const DOWN = new THREE.Vector3(0, -1, 0);
+
+/** Seconds one whole flip takes at `flipRate`. */
+const FLIP_TIME = (Math.PI * 2) / DRIVE.flipRate;
 
 /**
  * How far off level a surface may be and still count as something to drive on.
@@ -512,13 +543,6 @@ export function createChair(
   /** Radians still owed on the flip in progress. */
   let flipLeft = 0;
   let flips = 0;
-  /**
-   * The throttle as it was last step, so a flip can be fired on the press.
-   *
-   * Seeded from the input rather than from zero on take-off — see `flipRate` for
-   * why a key that was already down is not a press.
-   */
-  let lastThrottle = 0;
   /** Scratch for `sync`: the mesh origin's offset from the body's centre. */
   const lift = new THREE.Vector3();
   // Heading first, then the flip about the chair's own right axis — see `sync`.
@@ -578,6 +602,32 @@ export function createChair(
    * probe made the chair count as grounded for the whole first third of every
    * jump, which is exactly the third where the air time is decided.
    */
+  /**
+   * How long the chair has before it lands, in seconds.
+   *
+   * Ballistic, off the height of the floor under it and the vertical speed it
+   * currently has, which between them are the whole of what the solver is going to
+   * do next — nothing else acts on a chair in the air.
+   *
+   * It exists so a flip is only ever started when there is time to finish it, and
+   * that is what makes "hold the key" a sane control rather than a trap. Held
+   * through a long jump the first version chained flips until one was inevitably
+   * half-round at touchdown, so the *better* the jump the more certain the bail:
+   * measured, 1.1 s of air came down mid-fourth-flip and paid nothing. Now the
+   * chain simply stops before the flip that would not have fitted, and a long jump
+   * pays for every turn it had room for.
+   *
+   * `rayToSolid` rather than the ground probe, because this is the one place that
+   * wants the distance rather than the fact.
+   */
+  function airLeft(): number {
+    const p = body.translation();
+    probe.set(p.x, p.y, p.z);
+    const drop = Math.max(0, physics.rayToSolid(probe, DOWN, 20, body) - CENTRE_Y);
+    const vy = body.linvel().y;
+    return (vy + Math.sqrt(vy * vy + 2 * GRAVITY * drop)) / GRAVITY;
+  }
+
   function onGround(): boolean {
     const p = body.translation();
     probe.set(p.x, p.y, p.z);
@@ -638,20 +688,19 @@ export function createChair(
       if (stunned > 0) yaw -= DRIVE.stunSpin * h;
 
       /*
-       * And the flip, which is the one input in this game that is a press rather
-       * than a state. See `flipRate`: a throttle that is *already* held when the
-       * castors leave the floor is not a press, so this compares against the last
-       * step rather than against zero, and a player who went up the ramp pinned
-       * has to let go and ask for it.
+       * And the flip. Held rather than pressed — see the note above `flipRate` for
+       * why the drift key and not the throttle.
        *
-       * Only one at a time. A second press while one is still coming round is
-       * ignored rather than queued — queueing means a mashed key spends the whole
-       * jump owing you flips you cannot see, and then you land on your back
-       * wondering what you did.
+       * Only one at a time, and the next only starts once the last has come all the
+       * way round. Holding it through a long jump chains them; letting go stops
+       * after the one in progress, which is what makes a double a decision rather
+       * than a consequence of not letting go in time.
        */
-      const press = Math.sign(input.throttle);
-      if (flipping === 0 && press !== 0 && press !== Math.sign(lastThrottle) && stunned <= 0) {
-        flipping = press;
+      // A whole flip's worth of air, not a graced one: the grace exists to rescue a
+      // turn already committed that ran a frame short, and spending it up front to
+      // *permit* a flip is how you get a chain that always ends on its back.
+      if (flipping === 0 && input.drift && stunned <= 0 && airLeft() >= FLIP_TIME) {
+        flipping = input.throttle < -0.5 ? -1 : 1;
         flipLeft = Math.PI * 2;
       }
       if (flipping !== 0) {
@@ -676,15 +725,25 @@ export function createChair(
       telemetry.airborne = true;
       telemetry.air = air;
 
-      lastThrottle = input.throttle;
       body.setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) }, true);
       return;
     }
 
-    lastThrottle = input.throttle;
-
     // Down. Anything worth calling a jump pays out here, once.
     if (air > 0) {
+      /*
+       * The one in progress, if it was near enough round. See `flipGrace`: a flip
+       * that ran out of air a frame from home is a jump that was a frame short, not
+       * a mistake, and snapping it the rest of the way costs nothing and stops the
+       * trick punishing its own near-misses.
+       */
+      if (flipping !== 0 && flipLeft <= Math.PI * 2 * (1 - DRIVE.flipGrace)) {
+        pitch += flipping * flipLeft;
+        flipLeft = 0;
+        flipping = 0;
+        flips++;
+      }
+
       /*
        * How far off level the seat came down, once the whole turns are taken out.
        *
@@ -970,7 +1029,6 @@ export function createChair(
       flipping = 0;
       flipLeft = 0;
       flips = 0;
-      lastThrottle = 0;
       landed = null;
       telemetry.airborne = false;
       telemetry.air = 0;
