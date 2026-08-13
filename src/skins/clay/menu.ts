@@ -395,7 +395,14 @@ const CSS = `
 }
 #menu .briefing dd { margin: 0; color: var(--paper-2); }
 #menu .lobby .sheet { max-width: 560px; }
-#menu .lobby .field { display: flex; gap: 10px; align-items: center; margin: 0 0 12px; }
+/*
+ * The name, and only as much room as a name needs.
+ *
+ * It ran the full width of the sheet, which made a fourteen-character field look like
+ * the most important thing on a screen whose point is the two buttons underneath it.
+ * Sized to what it holds instead, it reads as a label with an answer next to it.
+ */
+#menu .lobby .field { display: flex; gap: 10px; align-items: center; margin: 20px 0 12px; }
 #menu .lobby label {
   font: 600 11px/1 ${FAMILY}; letter-spacing: .14em; text-transform: uppercase;
   color: var(--paper-2); min-width: 92px;
@@ -405,6 +412,7 @@ const CSS = `
   border: 1px solid rgba(255,255,255,.16); border-radius: 6px;
   padding: 9px 11px; font: 600 15px/1 ${FAMILY}; letter-spacing: .04em;
 }
+#menu .lobby .field input { flex: 0 1 240px; }
 #menu .lobby input:focus { outline: none; border-color: var(--hot); }
 #menu .lobby input.code { text-transform: uppercase; letter-spacing: .3em; max-width: 150px; }
 /*
@@ -438,19 +446,29 @@ const CSS = `
  */
 #menu .lobby .choices {
   display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin: 18px 0 2px;
+  /*
+   * Bottom, not top. Only one side has a line of text above its control now, so
+   * aligning the tops would hang the button three lines clear of the code field and
+   * put the two footnotes on different baselines. Sitting them on the same floor is
+   * what makes the pair read as one row of alternatives.
+   */
+  align-items: end;
 }
 #menu .lobby .choice {
   display: flex; flex-direction: column; align-items: flex-start; gap: 9px;
   padding-right: clamp(14px, 2vw, 24px);
 }
+/* One height across the rule, so the button and the code field are the same object
+   seen twice rather than two controls that nearly line up. */
+#menu .lobby .choices button,
+#menu .lobby .joiner input { box-sizing: border-box; height: 36px; }
 #menu .lobby .choice + .choice {
   padding-right: 0; padding-left: clamp(14px, 2vw, 24px);
   border-left: 1px solid rgba(246, 239, 226, 0.12);
 }
-#menu .lobby .ch-h {
-  font: 700 11px/1 ${FAMILY}; letter-spacing: .14em; text-transform: uppercase;
-  color: var(--paper-2);
-}
+/* A question in ordinary type. Set as a caps label it was a section heading for a
+   single field, which is more furniture than one text box can carry. */
+#menu .lobby .ch-h { font: 400 13.5px/1.35 ${FAMILY}; color: var(--paper-2); }
 #menu .lobby .ch-n { font: 400 12.5px/1.35 ${FAMILY}; color: var(--paper-3); }
 #menu .lobby .joiner { display: flex; gap: 8px; align-items: center; }
 #menu .lobby .joiner input { max-width: 116px; }
@@ -1087,17 +1105,15 @@ export function createMenu(hooks: MenuHooks): Menu {
   const lobbySheet = el('div', 'sheet');
   lobbySheet.innerHTML = `
     <h2 class="hd">Get a room.</h2>
-    <p>Up to five chairs. Whoever does not turn up is driven by the office.</p>
     <div class="field"><label for="lb-name">Name</label><input id="lb-name" maxlength="14" placeholder="who are you"></div>
     <div class="outside">
       <div class="choices">
         <div class="choice">
-          <span class="ch-h">Start one</span>
           <button data-act="create" class="go">Create a room</button>
           <span class="ch-n">You get a code to pass on.</span>
         </div>
         <div class="choice">
-          <span class="ch-h">Join one</span>
+          <span class="ch-h">Got a code?</span>
           <div class="joiner">
             <input id="lb-code" class="code" maxlength="4" placeholder="ABCD" autocomplete="off" spellcheck="false">
             <button data-act="join">Join</button>
@@ -1120,8 +1136,7 @@ export function createMenu(hooks: MenuHooks): Menu {
         <button data-act="start" class="go">Start race</button>
         <button data-act="leave">Leave</button>
       </div>
-    </div>
-    <div class="dismiss">Esc to go back</div>`;
+    </div>`;
   lobby.append(lobbySheet);
 
   const nameInput = lobbySheet.querySelector('#lb-name') as HTMLInputElement;
