@@ -1,0 +1,11 @@
+# The game is a static build; the room server is not here — see worker/index.ts and
+# the note at the top of src/net/protocol.ts. Netlify Functions and Edge Functions
+# are request-response, so a socket held open for a whole race has to live elsewhere.
+#
+# Set VITE_ROOM_URL in the Netlify UI to the deployed worker, e.g.
+#   VITE_ROOM_URL = wss://ballern-rooms.<subdomain>.workers.dev
+# With it unset the build still works and the Multiplayer row stays disabled.
+
+[build]
+  command = "npm run build"
+  publish = "dist"
