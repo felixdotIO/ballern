@@ -32,10 +32,17 @@ import type { ItemKind } from './items';
 /**
  * A chair, as much of one as the rules need to see.
  *
- * `progress` is total route distance driven and is the same quantity on the same
- * scale for everybody — see the long note on `State.progress` in `rivals.ts`,
- * which is what makes standings, targeting and the finish one comparison rather
- * than three.
+ * `progress` is **metres past the start line** — negative on the grid — and is the
+ * same quantity on the same scale for everybody, which is what makes standings,
+ * targeting and the finish one comparison rather than three.
+ *
+ * The road, in other words, and not the odometer. It is worth naming the one this
+ * is not: distance *driven* starts at zero on every slot, so comparing two of them
+ * compares a race in which each chair has its own start line, and a grid 3.5 m deep
+ * puts the whole field in the wrong order for the first few metres of every lap.
+ * Everything in here is a comparison between two chairs, so everything in here
+ * would have been wrong by up to the depth of the grid. See the note on
+ * `playerProgress` in `skins/clay/main.ts`.
  *
  * Nothing in here says who is driving. That is the point of the file.
  */

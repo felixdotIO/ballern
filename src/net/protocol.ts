@@ -71,7 +71,14 @@ export type SeatPose = {
   y: number;
   z: number;
   yaw: number;
-  /** Route distance, the same quantity everything else in the game ranks on. */
+  /**
+   * Metres past the start line, negative on the grid — the road, which is the one
+   * quantity everything in the game ranks on. See `Racer` in `game/seat.ts`.
+   *
+   * Sent rather than derived, and sent in this form rather than as distance driven,
+   * so the receiving end needs to know nothing about which slot the sender started
+   * from in order to rank them.
+   */
   progress: number;
   stunned: number;
   finished: boolean;

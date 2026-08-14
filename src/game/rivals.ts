@@ -153,7 +153,7 @@ export type DriverCharacter = {
 
 /** What the field needs to know about the player to race them. */
 export type PlayerOnTrack = {
-  /** Distance driven, on the same scale as a rival's. */
+  /** Metres past the start line, negative on the grid — a rival's own scale. */
   progress: number;
   /** Metres off the racing line, right positive — the same frame a rival's lane is in. */
   lane: number;
@@ -282,22 +282,21 @@ const TRAFFIC = {
    * This was `gap <= 0` — anything up the road at all is traffic — and it has one
    * fixed point that a chair can never drive out of.
    *
-   * Everything on the grid starts at `driven === 0` exactly: `reset` sets
-   * `progress = -grid.back`, so `progress + grid.back` is zero for every slot. If
-   * anything else is sitting a *hair* past zero, the test says it is ahead, the
-   * holding controller below matches its speed, and its speed is zero. So the rail
-   * does not move; because it does not move, `driven` stays at zero; because
-   * `driven` stays at zero, the gap stays where it was. The chair sits on its slot
-   * for the whole race, and the one behind it then holds station on *it*, and so on
-   * back down the column.
+   * Two chairs on the same row of the grid stand at the same road, exactly: a slot
+   * is `back` metres behind the line and `reset` sets `progress = -back`. If one of
+   * them is sitting a *hair* further up than the other, the test says it is ahead,
+   * the holding controller below matches its speed, and its speed is zero. So the
+   * rail does not move; because it does not move, the gap stays where it was. The
+   * chair sits on its slot for the whole race, and the one behind it then holds
+   * station on *it*, and so on back down the column.
    *
    * Measured, that is exactly what happened, and the hair was **two microns**. A
-   * person standing on the back slot has `progress = 3.5 + progressOnGrid(...)`,
-   * which is zero in exact arithmetic and +2.3e-6 in floating point. `plan.ts`
-   * happens to write `SPAWN` out rounded to three decimals, which lands on −3.4e-4
-   * instead — on the *other* side of zero — and that rounding is the only reason
-   * this has never been seen. Compute the slot properly, as a room full of people
-   * on assigned slots must, and two of the four rails never leave the grid.
+   * person standing on the back slot is at `progressOnGrid(...)` of −3.5, which is
+   * exact in principle and off by 2.3e-6 in floating point. `plan.ts` happens to
+   * write `SPAWN` out rounded to three decimals, which lands on the *other* side,
+   * and that rounding is the only reason this has never been seen. Compute the slot
+   * properly, as a room full of people on assigned slots must, and two of the four
+   * rails never leave the grid.
    *
    * 50 mm, then, and the size is not delicate: a chair is 660 mm across, so nothing
    * within 50 mm of another chair's centre is following it — it is inside it, and
@@ -385,7 +384,15 @@ export type Rival = {
   readonly speed: number;
   /** 1-based, like the player's. */
   readonly lap: number;
-  /** Total route distance covered, so standings are one comparison. */
+  /**
+   * Metres past the start line, negative on the grid.
+   *
+   * The road rather than the odometer, which is the only form in which two chairs
+   * can be compared at all — see the note on `playerProgress` in `main.ts`. It is
+   * `state.progress` verbatim; the grid slot is not added back on, because the
+   * metres from a slot to the line are metres this chair has to drive like anybody
+   * else.
+   */
   readonly progress: number;
   /** True once it has taken the flag. */
   readonly finished: boolean;
@@ -790,12 +797,18 @@ export function createRivals(
     v.position.set(x, floor, z);
     v.yaw = state.object.rotation.y;
     v.speed = state.speed;
-    // One plus the whole lap lengths driven, measured from this chair's own grid
-    // slot so a rival three metres up the road is still on lap one. Clamped at the
-    // top, or a chair sitting on the flag reports a fourth lap of a three-lap race.
-    const driven = state.progress + state.grid.back;
-    v.lap = Math.min(laps, Math.max(1, 1 + Math.floor(driven / track.total)));
-    v.progress = driven;
+    /*
+     * One plus the whole lap lengths *past the line*, which is the player's own
+     * measure — `race.ts` counts a lap on the crossing, so the chair on the grid
+     * is on lap one and the crossing makes it two. Taken off the odometer instead,
+     * a rival read a lap behind for the first few metres after every crossing: it
+     * had gone by the line and its own slot depth was still owed.
+     *
+     * Clamped at the top, or a chair sitting on the flag reports a fourth lap of a
+     * three-lap race.
+     */
+    v.lap = Math.min(laps, Math.max(1, 1 + Math.floor(Math.max(0, state.progress) / track.total)));
+    v.progress = state.progress;
     v.finished = state.finished;
     v.time = state.time;
     v.stunned = state.stunned;
@@ -882,13 +895,13 @@ export function createRivals(
    */
   function nearestAhead(
     self: State,
-    driven: number,
+    road: number,
     humans: readonly PlayerOnTrack[],
   ): { gap: number; speed: number; lane: number; faster: boolean } | null {
     let best: { gap: number; speed: number; lane: number; faster: boolean } | null = null;
 
-    const consider = (theirDriven: number, theirLane: number, theirSpeed: number): void => {
-      const gap = theirDriven - driven;
+    const consider = (theirRoad: number, theirLane: number, theirSpeed: number): void => {
+      const gap = theirRoad - road;
       // See `TRAFFIC.touching`: a chair that is level with this one is not ahead of
       // it, and treating it as though it were is a deadlock rather than a queue.
       if (gap <= TRAFFIC.touching || gap > TRAFFIC.sees) return;
@@ -897,13 +910,15 @@ export function createRivals(
       best = { gap, speed: theirSpeed, lane: theirLane, faster: self.speed > theirSpeed + 0.04 };
     };
 
+    // Everybody in one currency: metres past the line. It used to be metres driven,
+    // with each chair's own slot depth folded in, so "who is in the way" was out by
+    // the difference between two slots — two and a half metres on a grid where the
+    // whole traffic rule fires inside seven. A person who has finished is still
+    // traffic: they are parked somewhere on this floor either way.
     for (const other of racing()) {
       if (other === self || other.finished) continue;
-      consider(other.progress + other.grid.back, other.lane, other.speed);
+      consider(other.progress, other.lane, other.speed);
     }
-    // People are already carrying their own grid handicap in `progress` — see the
-    // note on `flagAt` — so they go in as they arrive. A person who has finished is
-    // still traffic: they are parked somewhere on this floor either way.
     for (const person of humans) consider(person.progress, person.lane, person.speed);
 
     return best;
@@ -912,12 +927,12 @@ export function createRivals(
   /**
    * The distance at which a race is over.
    *
-   * Route distance zero *is* the start line — `ROUTE[0]` is the grid — so the
-   * player begins at zero and three laps is three lap lengths, flat. The rivals
-   * start on negative progress because their grid slots are a few metres behind
-   * the line, which means they cover those few metres extra to see the same flag:
-   * that is what a grid position costs, and it falls out of the arithmetic rather
-   * than having to be arranged.
+   * Route distance zero *is* the start line — `ROUTE[0]` is the grid — so three
+   * laps is three lap lengths of road past it, for everybody. The rivals start on
+   * negative progress because their grid slots are a few metres behind the line,
+   * which means they cover those few metres extra to see the same flag: that is
+   * what a grid position costs, and it falls out of the arithmetic rather than
+   * having to be arranged.
    *
    * `race.ts` gates the player's laps by the eleven checkpoints and the finish
    * plane, and `main.ts` accumulates their distance from the same zero, so the two
@@ -1057,11 +1072,10 @@ export function createRivals(
          *
          * With one person in the room this is the number it always was.
          */
-        const driven = state.progress + state.grid.back;
         let gap = 0;
         let closest = Infinity;
         for (const person of humans) {
-          const theirs = person.progress - driven;
+          const theirs = person.progress - state.progress;
           if (Math.abs(theirs) < closest) {
             closest = Math.abs(theirs);
             gap = theirs;
@@ -1107,7 +1121,7 @@ export function createRivals(
          * what the player needs to read. What it must never do is what it used to,
          * which is advance straight through the chair in front.
          */
-        const ahead = nearestAhead(state, driven, humans);
+        const ahead = nearestAhead(state, state.progress, humans);
         if (ahead) {
           const urgency = 1 - ahead.gap / TRAFFIC.sees;
           /*
@@ -1209,11 +1223,28 @@ export function createRivals(
         state.s = ((state.progress % track.total) + track.total) % track.total;
         state.phase += h * (0.7 + state.slot.weave);
 
-        // Its own flag, its own grid slot: a chair that starts three metres up the
-        // road has three metres more to cover, so everybody drives the same distance.
-        // On a 390 m lap it is worth a third of a second, which is nothing — and
-        // being the kind of nothing that is free to get right, it is got right.
-        if (state.progress >= flagAt - state.grid.back) {
+        /*
+         * The same flag the player takes, and it has to be the *same* one.
+         *
+         * This read `flagAt - state.grid.back`: drive three lap lengths from your
+         * own slot and you are finished. Which sounds fairer than it is, because
+         * the player's flag is not a distance at all — it is the finish plane,
+         * crossed a third time, at road `flagAt` exactly, whatever slot they
+         * started from. So the field's flag fell a metre or three *short* of the
+         * line the player has to reach, and the standings are a comparison of road:
+         * a rival parked on `flagAt - back` is behind a player still short of the
+         * line, and gets passed by them in the last two metres of the race.
+         *
+         * Measured, before the fix: a chair genuinely last for three whole laps,
+         * beaten to the flag by all four rivals, crossed the line at road 1168.1
+         * against a field parked at 1165.5–1166.8 and was told it had won.
+         *
+         * One line, one plane, everybody. A grid slot still costs what it should —
+         * the metres from your slot up to the line — and it now costs them at the
+         * start, where a grid position is paid for, rather than refunding them at
+         * the flag.
+         */
+        if (state.progress >= flagAt) {
           /*
            * Parked just past the flag with its progress left where it is, so a rival
            * that has finished still outranks everyone still on the last lap.
@@ -1289,18 +1320,16 @@ export function createRivals(
     /*
      * Standings used to live here, and the last thing that happened to them before
      * they left was a real fix: they were ranking the *odometer* rather than the
-     * road. `state.progress + state.grid.back` is how far a chair has driven from its
-     * own slot, so the field was sorted by distance travelled since the flag with
-     * every slot counting as its own start line — which on a 3.5 m grid is a
-     * different race, and reported 5th at -0.1 m and 1st at 0.0 with nobody moving.
+     * road — distance driven from each chair's own slot, so the field was sorted by
+     * a race in which every slot has its own start line. On a 3.5 m grid that reads
+     * 5th at −0.1 m and 1st at 0.0 with nobody moving at all.
      *
      * `state.progress` is the honest quantity: distance past the line, starting at
-     * `-back`, exactly as `reset` sets it.
-     *
-     * That fix is kept and is now applied to everybody, which is the other half of
-     * it. Ranking only the computer's chairs was right for exactly as long as the
-     * only person on the grid was the one reading the number, so the question moved
-     * to where the whole field is — see `placeOf` in `main.ts`.
+     * `-back`, exactly as `reset` sets it — and it is now the *only* one that leaves
+     * this module, on the view above. Ranking only the computer's chairs was right
+     * for exactly as long as the only person on the grid was the one reading the
+     * number, so the question itself moved to where the whole field is — see
+     * `placeOf` in `main.ts`.
      */
   };
 }

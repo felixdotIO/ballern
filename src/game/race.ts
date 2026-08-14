@@ -23,7 +23,7 @@
 
 import type * as THREE from 'three';
 
-import { GATES, LAPS, ROUTE } from '../office/plan';
+import { GATES, LAPS, LEVELS, ROUTE } from '../office/plan';
 
 export type Phase =
   /** On the grid, engine off, clock at zero. */
@@ -113,15 +113,39 @@ const WRONG_WAY_SPEED = 1.6;
 const WRONG_WAY_GRACE = 0.9;
 
 /**
- * How far above or below a gate's own floor you may be and still cross it.
+ * How far *below* a gate's own floor you may be and still cross it.
  *
- * Half a storey, near enough: generous enough that a chair airborne off a kerb
- * or still settling onto a slab takes the gate it obviously went through, and
- * tight enough that the two levels of the Parkhaus can never be confused for
- * each other. Without it the deck's aisle gate and Ebene 5's are the same
- * plane, and three laps of the top deck is a legal race.
+ * Half a storey, near enough: generous enough that a chair still settling onto a
+ * slab takes the gate it obviously went through, and tight enough that the two
+ * levels of the Parkhaus can never be confused for each other. Without it the
+ * deck's aisle gate and Ebene 5's are the same plane, and three laps of the top
+ * deck is a legal race.
  */
 const GATE_BAND = 1.35;
+
+/**
+ * And how far above it, which is not the same number and was the bug.
+ *
+ * A chair in the air over a checkpoint has gone through the checkpoint. That is
+ * obvious from the driver's seat and it was not true in here: the band was
+ * symmetric, so anything more than 1.35 m up missed the plane it flew over, the
+ * lap quietly stopped counting, and the wayfinder spent the rest of the race
+ * pointing back at a room the player had already driven through twice.
+ *
+ * It is not a corner case. Two of the four kickers are within three metres of a
+ * gate plane — `office.kicker` at (49.6, 2.4) sits in front of Großraum Nord, and
+ * `garage.kicker` at (13.9, 19.0) in front of Ebene 5 Süd — and a boosted chair
+ * comes off one 1.6 m up, measured. The game is asking you to jump exactly where
+ * jumping used to cost you the lap.
+ *
+ * So: as much room as the storey has, and it costs nothing to give, because the
+ * ambiguity the band exists to prevent is only ever *below*. Ebene 5 is 2.9 m
+ * under the office floor, and there is nothing at all above the office floor but
+ * its own ceiling — a chair cannot be on a level that does not exist. Gates that
+ * stand in the Parkhaus keep the tight band both ways, because for those the
+ * office floor is the thing overhead.
+ */
+const AIR_BAND = 2.6;
 
 /**
  * How much a metre of height counts for against a metre in plan when deciding
@@ -217,7 +241,12 @@ export function createRace(): Race {
    * the one being looked for.
    */
   function crossed(g: (typeof GATES)[number], x: number, y: number, z: number): boolean {
-    if (Math.abs(y - (g.y ?? 0)) > GATE_BAND) return false;
+    const floor = g.y ?? LEVELS.floor;
+    const rise = y - floor;
+    // Up, only where there is no floor above this one to be mistaken for. Down,
+    // always tight. See AIR_BAND.
+    const band = rise > 0 && floor >= LEVELS.floor ? AIR_BAND : GATE_BAND;
+    if (Math.abs(rise) > band) return false;
 
     const nx = g.normal[0];
     const nz = g.normal[1];

@@ -464,7 +464,22 @@ const race = createRace();
 const hud = createClayHud();
 
 /*
- * Where the player is round the lap, as one number that only ever goes up.
+ * Where the player is round the lap: metres past the start line, negative on the
+ * grid, and it is the *only* quantity in the game that means "where a chair is".
+ *
+ * The distinction it replaces cost two bugs, so it is worth saying plainly. There
+ * are two numbers you can keep about a chair — how far it has driven since the
+ * flag (its odometer, which starts at zero on every slot) and how far past the
+ * line it is (its road, which starts at minus its own slot depth) — and only the
+ * second one can be compared between two chairs. A grid is 3.5 m deep, so ranking
+ * odometers is ranking a race in which every slot has its own start line: with
+ * nobody moving at all it reads 5th at −0.1 m and 1st at 0.0.
+ *
+ * Everything downstream now speaks road: `Seat.progress`, `Rival.progress`, the
+ * pose that goes over the wire, the item odds, the projectile gaps, the field's
+ * rubber band and the standings. Nothing adds a grid handicap back on, because
+ * nothing has to — the handicap is the metres between a slot and the line, and
+ * every chair drives them.
  *
  * Standings are a comparison of distances, so the player needs the same figure the
  * rivals carry. Two ways to get it and only one that works: `race.lap` times the
@@ -524,13 +539,13 @@ function readPlayer(): void {
 
 function trackPlayer(): void {
   if (onGrid) {
+    // Road, measured on the grid straight, which is where the projection onto the
+    // line's own run *is* the road: negative behind the line and zero on it. The
+    // same number `rivals.ts` starts a rail on, arrived at by measurement rather
+    // than by arithmetic, and it needs no slot depth adding to it — see the note
+    // on `playerProgress`.
     const past = progressOnGrid(chair.object.position.x, chair.object.position.z);
-    // Driven distance, on the same scale as the field's: zero on the slot, and the
-    // slot's own depth of it banked by the time the line goes under the castors.
-    // Off *this* seat's slot rather than off the back one, which is the same number
-    // in a solo race and the whole grid handicap in a shared one — the identical
-    // arithmetic `rivals.ts` does with `state.grid.back`, for the identical reason.
-    playerProgress = seatSlots[localSeat]!.back + past;
+    playerProgress = past;
     if (past < 0) {
       playerS = 0;
       return;
@@ -697,7 +712,7 @@ scene.add(pinatas.group);
 /**
  * Where a seat stands, 1-based.
  *
- * Two separate faults met here, and the fix needs both halves.
+ * Three separate faults met here, and the fix needs all three halves.
  *
  * ---- it has to be everybody ----------------------------------------------
  *
@@ -710,34 +725,79 @@ scene.add(pinatas.group);
  *
  * ---- and it has to be the road, not the odometer -------------------------
  *
- * `seat.progress` is distance *driven* — road position with the chair's own grid
- * slot already added on. Ranking that sorts the field by how far each chair has
- * travelled since the flag, with every slot counting as its own start line, and on
- * a grid 3.5 m deep that is a different race: with nobody moving at all it reads
- * 5th at −0.1 m and 1st at 0.0, so the moment the back-row chair edges forward it
- * leads a race it has not started. It runs the other way for the rest of the lap
- * too — a chair genuinely 1.7 m up the road counts as behind, because it started
- * further forward and so has less road on its odometer.
+ * Ranking distance *driven* sorts the field by how far each chair has travelled
+ * since the flag, with every slot counting as its own start line, and on a grid
+ * 3.5 m deep that is a different race: with nobody moving at all it reads 5th at
+ * −0.1 m and 1st at 0.0, so the moment the back-row chair edges forward it leads a
+ * race it has not started. It runs the other way for the rest of the lap too — a
+ * chair genuinely 1.7 m up the road counts as behind, because it started further
+ * forward and so has less road on its odometer.
  *
- * So the slot comes back off, and what is compared is one place on the road against
- * another. The grid handicap is then carried by where the chairs actually *are*
- * rather than added a second time, and a place changes hands on the frame the noses
- * cross. It works for a chair over the wire for the same reason it works for a rail:
- * a pose carries the sender's driven distance, and this end knows which slot they
- * started from.
- *
- * Ties go to whoever is asking — `>` and not `>=` — which is the convention every
- * racing game uses and the only one that does not read as being robbed.
+ * That fix used to live here, as a subtraction of the seat's own slot depth off
+ * every reading. It has moved to the source: a seat's `progress` *is* the road now,
+ * for rails, for people and for the chairs over the wire — see the note on
+ * `playerProgress`. So this is a straight read, and, more to the point, so is every
+ * other comparison of two chairs in the game. The item odds and the projectile
+ * targeting were making the same mistake this note is about, silently, because they
+ * were handed the same number and had no subtraction of their own.
  */
 function roadOf(id: number): number {
-  return (seats[id]?.progress ?? 0) - (seatSlots[id]?.back ?? 0);
+  return seats[id]?.progress ?? 0;
+}
+
+/**
+ * ---- and the road stops meaning anything at the flag --------------------
+ *
+ * Road is the right comparison for as long as everybody is still driving, and it
+ * is the wrong one the moment somebody is not. A chair that has finished stops
+ * where it stopped; a chair still on its last lap keeps going, sails past that
+ * parked number, and is told it has moved up — and since the result card takes
+ * the position on the frame the flag falls, the last player to finish read
+ * "Won", every single time, whatever had happened in the three laps before it.
+ *
+ * So a race is two questions, in this order: has this chair finished, and if
+ * both of us have, which of us finished first. Only chairs still running are
+ * ranked on the road. The order below is recorded once per chair, at the moment
+ * it takes the flag, which is the only moment at which it is knowable.
+ */
+const finishOrder: number[] = seats.map(() => 0);
+let flagged = 0;
+
+/** Everybody back on the grid, nobody finished. */
+function resetStandings(): void {
+  finishOrder.fill(0);
+  flagged = 0;
+}
+
+/** Whoever has just taken the flag, in the order they took it. */
+function noteFlag(): void {
+  let fresh: number[] | null = null;
+  for (const seat of seats) {
+    if (seat.finished && finishOrder[seat.id] === 0) (fresh ??= []).push(seat.id);
+  }
+  if (!fresh) return;
+  // Two chairs can cross inside one substep — 72 mm of road apart at racing speed
+  // — and the one further up it crossed first. Without this the tie is broken by
+  // seat number, which is the grid order, which is not a result.
+  if (fresh.length > 1) fresh.sort((a, b) => roadOf(b) - roadOf(a));
+  for (const id of fresh) finishOrder[id] = ++flagged;
+}
+
+/** Is `a` ahead of `b`? */
+function ahead(a: number, b: number): boolean {
+  const mine = finishOrder[a] ?? 0;
+  const theirs = finishOrder[b] ?? 0;
+  // Ties on the road go to whoever is asking — `>` and not `>=` — which is the
+  // convention every racing game uses and the only one that does not read as
+  // being robbed. Finishing order never ties: it is a sequence.
+  if (mine === 0 && theirs === 0) return roadOf(a) > roadOf(b);
+  return theirs === 0 || (mine !== 0 && mine < theirs);
 }
 
 function placeOf(id: number): number {
-  const mine = roadOf(id);
-  let ahead = 0;
-  for (const seat of seats) if (seat.id !== id && roadOf(seat.id) > mine) ahead++;
-  return ahead + 1;
+  let count = 0;
+  for (const seat of seats) if (seat.id !== id && ahead(seat.id, id)) count++;
+  return count + 1;
 }
 
 /** Carry where everybody is into the flat list the item rules read. */
@@ -789,6 +849,12 @@ function seatEveryone(): void {
     seat.stunned = rival.stunned;
     seat.finished = rival.finished;
   }
+
+  // Last, because it is a fact about the five records above and has to be taken
+  // in the step they were written in: the flag falls inside a substep, and a
+  // finishing order sampled once a frame is one that ranks two chairs 8 ms apart
+  // by whichever of them the renderer happened to look at first.
+  noteFlag();
 }
 
 /**
@@ -825,6 +891,10 @@ function restart(): void {
   playerS = 0;
   playerProgress = 0;
   onGrid = true;
+  // Nobody has finished a race that has not started. Left standing, last race's
+  // order outranks this race's road and the whole grid reads as having finished
+  // before the flag has even dropped.
+  resetStandings();
   rivals.reset();
   for (const r of rivalRigs) r.driver.reset();
   dynamics.reset();
@@ -2510,6 +2580,18 @@ if (import.meta.env.DEV) {
       itemPlay,
       rush,
       seats,
+      /*
+       * The standings, as the two functions rather than as the number on screen.
+       *
+       * A place is the one thing in the game that cannot be read off a screenshot
+       * and cannot be checked by eye: it is right or wrong only in relation to
+       * where five chairs are and which of them have finished, and both of the
+       * bugs it has had were invisible until somebody drove three whole laps and
+       * looked at the last two metres. On the handle they can be asked, off a
+       * scripted race, in a tab that never paints.
+       */
+      placeOf,
+      roadOf,
       /*
        * The fixed-step tick and the key set, on the handle.
        *
