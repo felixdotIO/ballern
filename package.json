@@ -8,7 +8,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "kit:compress": "node tools/compress-kit.mjs"
+    "kit:compress": "node tools/compress-kit.mjs",
+    "build:single": "npm run build && node tools/single-file.mjs"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.14.0",
