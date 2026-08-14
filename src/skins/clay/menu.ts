@@ -60,6 +60,14 @@
 
 import { el, FAMILY, installLook } from './look';
 import { CODE_ALPHABET } from '../../net/protocol';
+import {
+  currentFrameCap,
+  currentGraphics,
+  cycleFrameCap,
+  cycleGraphics,
+  frameCapLabel,
+  graphicsLabel,
+} from '../../render/settings';
 
 export type MenuHooks = {
   /** Whether there is a race in progress to go back to. */
@@ -345,12 +353,39 @@ const CSS = `
   line-height: 1.02;
   letter-spacing: -0.02em;
 }
-#menu .briefing .kicker {
-  font-size: 12px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--hot);
-  margin-bottom: 6px;
+/*
+ * Three columns, because they are three subjects and not three chapters.
+ *
+ * The sheet was one 560 px column you scrolled: the story, then the controls,
+ * then the settings, each waiting behind the last. Nothing about them is
+ * sequential — you are either reading why the race exists, or learning which key
+ * drifts, or turning the fans down — so stacking them only ever meant that two
+ * thirds of the page was somewhere else.
+ *
+ * Side by side the whole sheet is one screen with no scroll, and the reader picks
+ * the column they came for instead of paging past the two they did not.
+ */
+#menu .briefing .sheet.wide { width: min(1060px, 94%); }
+#menu .briefing .cols {
+  margin-top: 20px;
+  display: grid;
+  grid-template-columns: 1fr 1.32fr 1fr;
+  gap: 30px;
+  align-items: start;
+}
+#menu .briefing .col + .col {
+  padding-left: 30px;
+  border-left: 1px solid rgba(246, 239, 226, 0.12);
+}
+#menu .briefing .col > :first-child { margin-top: 0; }
+/* Below three columns' worth of room it is a column again, rules turned flat. */
+@media (max-width: 900px) {
+  #menu .briefing .sheet.wide { width: min(560px, 92%); }
+  #menu .briefing .cols { grid-template-columns: 1fr; gap: 22px; }
+  #menu .briefing .col + .col {
+    padding-left: 0; padding-top: 22px;
+    border-left: 0; border-top: 1px solid rgba(246, 239, 226, 0.12);
+  }
 }
 #menu .briefing p {
   margin: 14px 0 0;
@@ -372,30 +407,99 @@ const CSS = `
   font-size: 16.5px;
   margin-top: 18px;
 }
+/*
+ * A section heading, set as a heading.
+ *
+ * Every label on this sheet used to be the same object: 11-12 px, uppercase, a
+ * fifth of an em of tracking, in one of three greys. Section titles looked like
+ * the standfirst over the headline, which looked like the caption on a form
+ * field, which looked like the dismiss line — so none of them ranked, and the
+ * tracking made all of them slower to read than the sentences they introduced.
+ *
+ * They are headings. They get heading treatment: sentence case, the body face,
+ * bigger than the text beneath rather than smaller, full paper against the body's
+ * 68%. Rank comes from size and colour, which is where it comes from everywhere
+ * else in this interface.
+ */
 #menu .briefing h3 {
-  margin: 22px 0 0;
-  font-size: 12px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--paper-3);
-}
-#menu .briefing dl {
-  margin: 8px 0 0;
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 5px 16px;
-  align-items: baseline;
-  font-size: 14.5px;
-}
-#menu .briefing dt {
+  margin: 24px 0 10px;
+  font-size: 16px;
   font-weight: 700;
-  letter-spacing: 0.02em;
-  white-space: nowrap;
+  letter-spacing: -0.01em;
   color: var(--paper);
 }
-#menu .briefing dd { margin: 0; color: var(--paper-2); }
+
+/*
+ * The controls, as keys rather than as a glossary.
+ *
+ * This was a definition list — "W A S D" in bold on the left, prose on the right —
+ * and a definition list is what you write when the thing being defined is a word.
+ * These are not words, they are keys on the reader's own keyboard, and the fastest
+ * way to say "press this" is to draw the thing that gets pressed.
+ *
+ * The cap is a real one: a light top, a darker bottom edge carrying the two pixels
+ * of border that make it sit proud, and a fixed minimum square so a single letter
+ * and the word Space belong to the same set. It costs one element per key and it
+ * turns four sections of reading into four sections of looking.
+ */
+#menu .briefing .ctrls { margin: 0; display: flex; flex-direction: column; gap: 9px; }
+#menu .briefing .ctrl {
+  display: grid;
+  /*
+   * Wide enough for the longest row there is, which is four caps side by side:
+   * 4 × 32 plus three 5 px gaps is 143. Sized to the content instead, every
+   * section would file its keys against a different left edge and the
+   * descriptions would step in and out down the page — the column is doing the
+   * job a tab stop does, so it is a fixed one.
+   */
+  grid-template-columns: 149px 1fr;
+  gap: 13px;
+  align-items: center;
+  font-size: 14px;
+  color: var(--paper-2);
+  line-height: 1.4;
+}
+/* Never wrapped: a chord broken across two lines stops reading as one press. */
+#menu .briefing .keys { display: flex; gap: 5px; align-items: center; flex-wrap: nowrap; }
+#menu .briefing .keys .plus { font-size: 12px; color: var(--paper-3); padding: 0 1px; }
+#menu .briefing kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /*
+   * Border-box, and not as a formality: without it the padding and the two borders
+   * are added *outside* the minimum, so a 32 px square cap measures 48 and a row of
+   * four overruns its column and lands under the sentence describing it.
+   */
+  box-sizing: border-box;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 7px;
+  font: 700 11.5px/1 ${FAMILY};
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--paper);
+  background: linear-gradient(180deg, rgba(246, 239, 226, 0.15), rgba(246, 239, 226, 0.05));
+  border: 1px solid rgba(246, 239, 226, 0.2);
+  /* The bottom edge is the whole illusion: a cap is a thing with a side to it. */
+  border-bottom: 2px solid rgba(246, 239, 226, 0.28);
+  border-radius: 6px;
+}
+#menu .briefing kbd.wide { min-width: 76px; }
+/* A sheet this narrow puts the keys above their line rather than beside it. */
+@media (max-width: 620px) {
+  #menu .briefing .ctrl { grid-template-columns: 1fr; gap: 6px; }
+}
 #menu .lobby .sheet { max-width: 560px; }
-#menu .lobby .field { display: flex; gap: 10px; align-items: center; margin: 0 0 12px; }
+/*
+ * The name, as one field and no caption.
+ *
+ * It had a 92 px uppercase "NAME" label sitting to the left of it, which is a form
+ * row — and a form row is what you build when there are six fields and the reader
+ * has to tell them apart. There is one field. The placeholder says what goes in it,
+ * and the label was costing a third of the width to repeat the placeholder.
+ */
+#menu .lobby .field { display: flex; gap: 10px; align-items: center; margin: 18px 0 0; }
 #menu .lobby label {
   font: 600 11px/1 ${FAMILY}; letter-spacing: .14em; text-transform: uppercase;
   color: var(--paper-2); min-width: 92px;
@@ -438,20 +542,25 @@ const CSS = `
  */
 #menu .lobby .choices {
   display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin: 18px 0 2px;
+  align-items: stretch;
 }
 #menu .lobby .choice {
-  display: flex; flex-direction: column; align-items: flex-start; gap: 9px;
-  padding-right: clamp(14px, 2vw, 24px);
+  display: flex; flex-direction: column; align-items: flex-start; gap: 11px;
+  padding-right: clamp(16px, 2.4vw, 26px);
 }
 #menu .lobby .choice + .choice {
-  padding-right: 0; padding-left: clamp(14px, 2vw, 24px);
+  padding-right: 0; padding-left: clamp(16px, 2.4vw, 26px);
   border-left: 1px solid rgba(246, 239, 226, 0.12);
 }
-#menu .lobby .ch-h {
-  font: 700 11px/1 ${FAMILY}; letter-spacing: .14em; text-transform: uppercase;
-  color: var(--paper-2);
-}
-#menu .lobby .ch-n { font: 400 12.5px/1.35 ${FAMILY}; color: var(--paper-3); }
+/*
+ * No heading over either side, and nothing lost with them.
+ *
+ * "Start one" and "Join one" sat over a button reading "Create a room" and a
+ * four-letter code field next to one reading "Join". Both said, in small tracked
+ * capitals, exactly what the control underneath said in plain words — and the
+ * rule between the two halves is what makes them alternatives, which is the only
+ * thing the headings were really there to establish.
+ */
 #menu .lobby .joiner { display: flex; gap: 8px; align-items: center; }
 #menu .lobby .joiner input { max-width: 116px; }
 /* A sheet this narrow cannot hold two columns; below that they stack and the rule
@@ -490,13 +599,43 @@ const CSS = `
 #menu .lobby .seats .tag.set { color: var(--hot); }
 #menu .lobby .note { color: var(--paper-2); font: 400 13px/1.5 ${FAMILY}; margin: 12px 0 0; }
 #menu .lobby .bad { color: #e8705a; }
-#menu .briefing .dismiss {
-  margin-top: 24px;
-  font-size: 12px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--paper-3);
+/*
+ * The two dials, on the one screen in the game that already has room to explain
+ * itself.
+ *
+ * They are here rather than on the rail because the rail does not scroll, it
+ * collides — see the note above the short-window media query — and it collides
+ * at exactly the row count one more button would put it at. This sheet, on the
+ * other hand, is a scrolling surface that a player already opens to find out
+ * what Space does, which makes it the right place to tell them what the game is
+ * doing to their laptop.
+ *
+ * Laid out as a definition list would be, because that is what it is: a term and
+ * its current value, with the value being the part you can press.
+ */
+#menu .briefing .dials { display: grid; gap: 10px; margin-top: 4px; }
+#menu .briefing .dial {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
 }
+#menu .briefing .dial > span { font: 400 14px/1 ${FAMILY}; color: var(--paper-2); }
+#menu .briefing .dial button {
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  min-width: 108px;
+  height: 36px;
+  padding: 0 14px;
+  cursor: pointer;
+  font: 600 13.5px/1 ${FAMILY};
+  color: var(--paper);
+  background: rgba(246, 239, 226, 0.07);
+  border: 1px solid rgba(246, 239, 226, 0.16);
+  border-radius: calc(var(--r) * 0.5);
+  transition: background 140ms var(--ease), border-color 140ms var(--ease);
+}
+#menu .briefing .dial button:hover { background: rgba(246, 239, 226, 0.13); border-color: var(--hot); }
 
 #menu .rail {
   position: absolute;
@@ -1018,58 +1157,134 @@ export function createMenu(hooks: MenuHooks): Menu {
    * compulsory — which is what a briefing behind a menu row is.
    */
   const briefing = el('div', 'briefing');
-  const sheet = el('div', 'sheet');
+  const sheet = el('div', 'sheet wide');
   sheet.innerHTML = `
     <h2 class="hd">Three laps. One mug.</h2>
-    <p>It started at the Sommerfest. Facilities bet the boss a crate of Sprudel that
-       nobody could get a task chair from Reception to the Teeküche without putting a
-       foot down. The boss did it in forty seconds. On carpet. Holding a plate.</p>
-    <p>By Wednesday there was a route. By Friday there were rules, because the sales
-       guy went through the canteen and everybody agreed that did not count. There is
-       a timekeeper now. There is a trophy, and the trophy is the mug from the third
-       kitchen — <b>WORLD&rsquo;S OKAYEST EMPLOYEE</b> — and seven people have booked
-       the afternoon off to win it.</p>
-    <p>The lease ends Friday. The movers come Monday. Until then Level&nbsp;6 is not an
-       office, it is a circuit: three laps through every room you have ever sat in, out
-       onto the Parkdeck, down through Ebene&nbsp;5 and back past your own desk. Your
-       colleagues came down to watch. They are standing exactly where people used to
-       cut the corner.</p>
-    <p class="sting">Drive the whole thing. Nobody gets to drive it again.</p>
+    <div class="cols">
+      <div class="col">
+        <p>The lease ends Friday and the movers come Monday, so this week Level&nbsp;6
+           is not an office — it is a circuit. Reception to the Teeküche, out onto the
+           Parkdeck, down through Ebene&nbsp;5 and back past your own desk.</p>
+        <p>The trophy is the mug from the third kitchen. It says
+           <b>WORLD&rsquo;S OKAYEST EMPLOYEE</b>, and seven people booked the
+           afternoon off to win it.</p>
+        <p class="sting">Drive the whole thing. Nobody gets to drive it again.</p>
+      </div>
 
-    <h3>Driving</h3>
-    <dl>
-      <dt>W A S D</dt><dd>steer and drive — arrow keys work too</dd>
-      <dt>Space</dt><dd>hold to drift. Hold it longer for a bigger boost: three
-        levels, and the third takes a whole corner to earn</dd>
-      <dt>R</dt><dd>back to the grid</dd>
-      <dt>Esc</dt><dd>this screen</dd>
-    </dl>
+      <div class="col">
+        <h3>Driving</h3>
+        <div class="ctrls">
+          <div class="ctrl">
+            <span class="keys"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span>
+            <span>Steer and drive. Arrows work too.</span>
+          </div>
+          <div class="ctrl">
+            <span class="keys"><kbd class="wide">Space</kbd></span>
+            <span>Hold to drift. Longer hold, bigger boost.</span>
+          </div>
+          <div class="ctrl">
+            <span class="keys"><kbd>R</kbd></span>
+            <span>Back to the grid.</span>
+          </div>
+        </div>
 
-    <h3>In the air</h3>
-    <p>Every ramp pays out on the landing: for the hang time, for how far round you
-       got, and for anything you brought all the way over. Keep holding Space off a
-       jump and the chair flips as many times as there is room for — it will not start
-       one it cannot finish. Come down on the backrest anyway and you get nothing and
-       lose half your speed.</p>
-    <dl>
-      <dt>Space</dt><dd>in the air it is not drift, it is a flip. Hold it to keep
-        flipping</dd>
-      <dt>Space + S</dt><dd>backwards instead</dd>
-      <dt>A D</dt><dd>spin, once the castors are off the floor</dd>
-    </dl>
+        <h3>In the air</h3>
+        <div class="ctrls">
+          <div class="ctrl">
+            <span class="keys"><kbd class="wide">Space</kbd></span>
+            <span>A flip, not a drift. Hold to keep flipping.</span>
+          </div>
+          <div class="ctrl">
+            <span class="keys"><kbd class="wide">Space</kbd><i class="plus">+</i><kbd>S</kbd></span>
+            <span>Backwards instead.</span>
+          </div>
+          <div class="ctrl">
+            <span class="keys"><kbd>A</kbd><kbd>D</kbd></span>
+            <span>Spin, once the castors are up.</span>
+          </div>
+        </div>
+        <p>Every ramp pays out on the landing. Come down on the backrest and you get
+           nothing and lose half your speed.</p>
 
-    <h3>Piñatas</h3>
-    <p>Drive through one and you get something. What you get depends on where you are
-       lying — last place draws the things that close a gap, the leader draws the things
-       that defend one. Everybody throws, including them.</p>
-    <dl>
-      <dt>E</dt><dd>throw it forwards</dd>
-      <dt>Q</dt><dd>throw it behind you</dd>
-      <dt>Hold E</dt><dd>drag it behind you as a shield until you want it</dd>
-    </dl>
-    <div class="dismiss">Any key to go back</div>`;
+        <h3>Piñatas</h3>
+        <div class="ctrls">
+          <div class="ctrl">
+            <span class="keys"><kbd>E</kbd></span>
+            <span>Throw it forwards.</span>
+          </div>
+          <div class="ctrl">
+            <span class="keys"><kbd>Q</kbd></span>
+            <span>Throw it behind you.</span>
+          </div>
+          <div class="ctrl">
+            <span class="keys"><kbd class="wide">Hold E</kbd></span>
+            <span>Hold it behind you as a shield.</span>
+          </div>
+        </div>
+        <p>Last place draws what closes a gap, the leader what defends one.</p>
+      </div>
+
+      <div class="col">
+        <h3>Your machine</h3>
+        <p>The game draws as well as it can and then keeps going, which on a laptop is
+           how you end up with the fans at full song.</p>
+        <div class="dials">
+          <div class="dial"><span>Graphics</span><button type="button" data-dial="graphics"></button></div>
+          <div class="dial"><span>Frame rate</span><button type="button" data-dial="frames"></button></div>
+        </div>
+        <p>The chair handles identically either way: the simulation runs at a fixed
+           120 steps a second and has never been on the same clock as the picture.</p>
+      </div>
+    </div>`;
   briefing.append(sheet);
-  briefing.addEventListener('click', () => read(false));
+  /*
+   * The room around the sheet is the way out.
+   *
+   * This closed on *any* click, the sheet included, which is the behaviour of a
+   * screen with nothing on it to touch — and the moment the graphics dials went on
+   * it stopped being true: pressing a control dismissed the screen you pressed it
+   * on. It was patched then with a `stopPropagation` on the dials, which fixes the
+   * symptom and leaves the rule wrong for whatever goes on this sheet next.
+   *
+   * So the rule is the one every modal on the web already uses and every player
+   * already knows: the scrim closes, the panel does not. Testing the target rather
+   * than the currentTarget is the whole implementation, and it needs no cooperation
+   * from anything inside.
+   */
+  briefing.addEventListener('click', (e) => {
+    if (e.target === briefing) read(false);
+  });
+
+  /*
+   * The dials, wired.
+   *
+   * Click only, and that is a deliberate omission rather than an oversight: this
+   * sheet's contract is that any key goes back, printed at the bottom of it, and a
+   * screen that silently exempts four keys from a promise it makes in writing is
+   * worse than one you have to reach for the mouse on. The rail keeps the
+   * keyboard; the sheet keeps its exit.
+   */
+  const dials = sheet.querySelectorAll<HTMLButtonElement>('[data-dial]');
+
+  function paintDials(): void {
+    for (const dial of dials) {
+      const value =
+        dial.dataset.dial === 'graphics'
+          ? graphicsLabel(currentGraphics())
+          : frameCapLabel(currentFrameCap());
+      if (dial.textContent !== value) dial.textContent = value;
+    }
+  }
+
+  for (const dial of dials) {
+    dial.addEventListener('click', () => {
+      if (dial.dataset.dial === 'graphics') cycleGraphics(1);
+      else cycleFrameCap(1);
+      paintDials();
+    });
+  }
+
+  paintDials();
 
   /*
    * ---- the lobby -----------------------------------------------------------
@@ -1087,22 +1302,17 @@ export function createMenu(hooks: MenuHooks): Menu {
   const lobbySheet = el('div', 'sheet');
   lobbySheet.innerHTML = `
     <h2 class="hd">Get a room.</h2>
-    <p>Up to five chairs. Whoever does not turn up is driven by the office.</p>
-    <div class="field"><label for="lb-name">Name</label><input id="lb-name" maxlength="14" placeholder="who are you"></div>
+    <div class="field"><input id="lb-name" maxlength="14" placeholder="Your name"></div>
     <div class="outside">
       <div class="choices">
         <div class="choice">
-          <span class="ch-h">Start one</span>
           <button data-act="create" class="go">Create a room</button>
-          <span class="ch-n">You get a code to pass on.</span>
         </div>
         <div class="choice">
-          <span class="ch-h">Join one</span>
           <div class="joiner">
             <input id="lb-code" class="code" maxlength="4" placeholder="ABCD" autocomplete="off" spellcheck="false">
             <button data-act="join">Join</button>
           </div>
-          <span class="ch-n">Four letters from whoever made it.</span>
         </div>
       </div>
     </div>
@@ -1120,8 +1330,7 @@ export function createMenu(hooks: MenuHooks): Menu {
         <button data-act="start" class="go">Start race</button>
         <button data-act="leave">Leave</button>
       </div>
-    </div>
-    <div class="dismiss">Esc to go back</div>`;
+    </div>`;
   lobby.append(lobbySheet);
 
   const nameInput = lobbySheet.querySelector('#lb-name') as HTMLInputElement;
@@ -1213,18 +1422,24 @@ export function createMenu(hooks: MenuHooks): Menu {
       note.className = 'note';
       note.textContent = 'Connecting…';
     } else if (!inRoom) {
+      /*
+       * One line, and only when there is something to say.
+       *
+       * The other branch used to read "Create a room and pass the code on, or type
+       * one in to join", under two headings that already say "Start one" and "Join
+       * one" over the two controls that do it. A sheet that captions its own buttons
+       * is a sheet nobody finishes reading — and the one line that *is* worth having
+       * is the precondition, because a disabled button explains that it is disabled
+       * and never why.
+       */
       note.className = 'note';
-      note.textContent = named
-        ? 'Create a room and pass the code on, or type one in to join.'
-        : 'Put a name in first — it is what everybody else sees on the grid.';
+      note.textContent = named ? '' : 'Put a name in first — it is what the others see.';
     } else {
       note.className = 'note';
       const n = view.members.length;
-      note.textContent = `Room ${view.code} · ${n} of 5 · the office drives the other ${5 - n}. ${
-        view.isHost
-          ? 'It starts when everybody is ready — or start now without them.'
-          : 'It starts when everybody is ready.'
-      }`;
+      // The seat count and nothing else. Whose turn it is to press start is on the
+      // buttons directly below, which are the only ones on screen.
+      note.textContent = `${n} of 5 seats · the office drives the other ${5 - n}`;
     }
   }
 
@@ -1259,6 +1474,13 @@ export function createMenu(hooks: MenuHooks): Menu {
       .join('');
     paintLobby();
   });
+  // The same way out the briefing has, and for the same reason. Leaving the lobby
+  // is not leaving the room — `showLobby(false)` only puts the sheet away, so a
+  // stray click outside cannot drop somebody out of a race they are waiting for.
+  lobby.addEventListener('click', (e) => {
+    if (e.target === lobby) showLobby(false);
+  });
+
   lobbySheet.addEventListener('click', (e) => {
     const button = (e.target as HTMLElement).closest('[data-act]') as HTMLButtonElement | null;
     if (!button || button.disabled) return;

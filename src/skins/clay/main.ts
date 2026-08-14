@@ -49,6 +49,13 @@ import { createDriver } from '../../game/driver';
 import { bearingTo, createRace } from '../../game/race';
 import { bindDriver } from '../../render/driverRig';
 import { createQuality } from '../../render/quality';
+import {
+  ceilingFor,
+  currentFrameCap,
+  currentGraphics,
+  onSettingsChange,
+  shadowFor,
+} from '../../render/settings';
 import { driver as kitDriver, loadKit, raceChair, type DriverKey } from '../../render/kit';
 import { createLightPool } from '../../render/lights';
 import { createRoutePath } from './routePath';
@@ -240,6 +247,16 @@ let seatSlots: GridSlot[] = [PLAYER_SLOT, ...GRID_SLOTS.slice(0, MAX_RIVALS)];
 let railSeats: number[] = [1, 2, 3, 4];
 /** Seats driven by another person, over the wire. Empty in a solo race. */
 let proxySeats: number[] = [];
+/**
+ * What to call the people over the wire, by seat.
+ *
+ * Only the proxies are in here. A rail's name is the character it was dealt and a
+ * rail is the only thing that knows it; the local seat's is whatever is in the
+ * garage right now. This is the one case where the name is a fact about a person
+ * rather than about a chair, so it is the one case that has to be remembered when
+ * the seating arrives.
+ */
+const seatNames = new Map<number, string>();
 
 /** The seat a rail drives, and the rail driving a seat. −1 if nothing is. */
 const seatOfRail = (rail: number): number => railSeats[rail] ?? -1;
@@ -740,6 +757,38 @@ function placeOf(id: number): number {
   return ahead + 1;
 }
 
+/**
+ * Who is in a seat, by name.
+ *
+ * Three kinds of answer for the three kinds of driver, and they have to be asked
+ * in this order: the local seat knows its own pick, a rail carries the label it
+ * was dealt in `fieldAgainst`, and a seat over the wire is a person whose name
+ * came off the room. The fallback is never reached in a race that started
+ * properly and exists because a result card is not worth a crash.
+ */
+function nameOf(id: number): string {
+  if (id === localSeat) return RIDERS[garage.rider]!.label;
+  const rail = railOfSeat(id);
+  if (rail >= 0) return rivals.all[rail]?.label || 'The field';
+  return seatNames.get(id) ?? 'Somebody';
+}
+
+/**
+ * The finishing order, as the result card wants it.
+ *
+ * Sorted on the same `roadOf` the live position counter uses, so the card and the
+ * corner of the screen can never disagree about who won — which they would the
+ * moment this grew its own idea of what a place is.
+ */
+function standings(): { place: number; name: string; you: boolean }[] {
+  return seats
+    .map((seat) => ({ id: seat.id, road: roadOf(seat.id) }))
+    .sort((a, b) => b.road - a.road)
+    .map((entry, i) => ({ place: i + 1, name: nameOf(entry.id), you: entry.id === localSeat }));
+}
+
+hud.standings(standings);
+
 /** Carry where everybody is into the flat list the item rules read. */
 function seatEveryone(): void {
   const me = seats[localSeat]!;
@@ -1120,10 +1169,16 @@ const roomHandlers: RoomHandlers = {
     // Everybody wears the driver they picked in the lobby: the people over the wire
     // on the proxy rigs, and whatever the computer was left with on the rails.
     const byId = new Map(room.members.map((m) => [m.id, m]));
+    seatNames.clear();
     proxySeats.forEach((seat, i) => {
       const who = message.seating.find((s) => s.seat === seat);
       const member = who && byId.get(who.id);
-      if (member) dressRig(railSeats.length + i, RIDERS[member.rider]!.key);
+      if (member) {
+        dressRig(railSeats.length + i, RIDERS[member.rider]!.key);
+        // Their own name off the lobby, not the character they picked: in a room the
+        // interesting thing about second place is which of your colleagues it was.
+        seatNames.set(seat, member.name);
+      }
     });
     refreshField();
     useDriver(RIDERS[garage.rider]!.key);
@@ -1992,6 +2047,28 @@ const quality = createQuality({
   },
 });
 
+/**
+ * The graphics dial, applied here and nowhere else.
+ *
+ * Two things move together and it is worth being explicit about why they are not
+ * one thing. The ceiling bounds the *adaptive* controller — it keeps measuring
+ * and keeps adapting below the lid, so a slow machine on High still gets the
+ * same protection it always had. The shadow map is not adaptive at all and never
+ * was: it is a fixed cost paid every frame regardless of how the frame is going,
+ * which is exactly the kind of cost a ladder cannot reach and a preference can.
+ *
+ * Run once on the way in as well as on every change, so the remembered setting
+ * is in force before the first frame rather than a frame after it.
+ */
+function applyGraphics(): void {
+  const tier = currentGraphics();
+  quality.limit(ceilingFor(tier));
+  lighting.shadowSize(shadowFor(tier));
+}
+
+onSettingsChange(applyGraphics);
+applyGraphics();
+
 const focusPoint = new THREE.Vector3();
 
 function tick(dt: number): void {
@@ -2253,6 +2330,62 @@ let orbiting = false;
 let settling = 6;
 setTimeout(() => applySize(true), 400);
 
+/** Wall-clock stamp of the last frame actually drawn. */
+let drawnAt = 0;
+
+/**
+ * The menu is a still, and it was being drawn like a lap.
+ *
+ * The character select is one figure on a turntable doing a slow swivel, with
+ * the simulation frozen behind it — and it was running the whole post chain,
+ * bokeh and ambient occlusion and bloom, sixty or a hundred and twenty times a
+ * second, for a picture that changes by a degree of yaw between frames. It is
+ * also where a player sits for the longest uninterrupted stretch in the game,
+ * picking a driver, which makes it the single worst thing in here per unit of
+ * anybody looking at it.
+ *
+ * Thirty is plenty for a swivel and nowhere near enough for a drag, hence the
+ * exception: while a pointer is actually turning the seat the cap comes off,
+ * because that is the one moment the menu has latency worth protecting.
+ */
+const MENU_FPS = 30;
+
+/**
+ * Whether this animation frame is one we want to pay for.
+ *
+ * The three quarters is the whole trick. Comparing against a full interval means
+ * a 60 Hz display — whose frames arrive at 16.66 ms against a 16.67 ms budget —
+ * misses every single one and renders at thirty. Comparing against three
+ * quarters of it lets the display's own frames through untouched, halves a
+ * 120 Hz panel exactly, and turns 144 into 72 rather than into a lumpy 48. None
+ * of those are 60 on the nose and none of them need to be: the goal is to stop
+ * drawing frames nobody asked for, not to hit a number.
+ */
+function due(now: number): boolean {
+  const fps = staged && turning === null ? MENU_FPS : currentFrameCap();
+  if (fps === 0) {
+    drawnAt = now;
+    return true;
+  }
+  if (now - drawnAt < (1000 / fps) * 0.75) return false;
+  drawnAt = now;
+  return true;
+}
+
+/**
+ * Split from `frame` so that a skipped frame costs a comparison and a
+ * reschedule, and so that a throw inside the frame still stops the loop rather
+ * than filling the console sixty times a second — which is what hoisting the
+ * `requestAnimationFrame` to the top of `frame` would have cost.
+ */
+function pump(now: number): void {
+  if (!due(now)) {
+    requestAnimationFrame(pump);
+    return;
+  }
+  frame();
+}
+
 function frame(): void {
   applySize(settling > 0);
   if (settling > 0) settling--;
@@ -2463,7 +2596,7 @@ function frame(): void {
     placeOf(localSeat),
     seats.length,
   );
-  requestAnimationFrame(frame);
+  requestAnimationFrame(pump);
 }
 
 frame();

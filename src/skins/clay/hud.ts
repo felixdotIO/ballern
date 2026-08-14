@@ -237,13 +237,115 @@ const CSS = `
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 340px;
+  width: 528px;
   padding: 22px 26px 24px;
   text-align: left;
 }
-#hud .result h1 { margin: 0 0 2px; font-size: 34px; line-height: 1; letter-spacing: -0.02em; }
-#hud .result .sub { font-size: 14px; color: var(--paper-2); }
-#hud .result .log { margin: 18px 0 0; display: flex; flex-direction: column; gap: 7px; }
+
+/*
+ * The place, at the size the thing everybody asks first deserves.
+ *
+ * This was a 14 px subtitle reading "1st of 5 · 3 laps · Level 6", which is four
+ * facts at one weight where only one of them is the answer. Two of the four were
+ * furniture — the lap count is on the HUD for the whole race and the floor is
+ * the only floor there is — and the ordinal, the single thing a person came to
+ * this card to read, was set smaller than the lap times underneath it.
+ *
+ * So the numeral is the card now: 72 px, amber on a win, with the suffix riding
+ * high off its shoulder the way a race result is actually printed. Nothing at
+ * all is set beside it. "Won" went first, because a word restating a numeral
+ * three times its height is the card explaining its own headline; "of 5" went
+ * after it, because the board directly underneath is five rows long and counting
+ * them is not work. A headline that needs a subtitle is two headlines.
+ */
+#hud .result .crown { display: flex; align-items: baseline; }
+#hud .result .pos {
+  font-size: 72px;
+  line-height: 0.82;
+  letter-spacing: -0.04em;
+  font-variation-settings: 'opsz' 96;
+  color: var(--paper);
+}
+#hud .result .pos sup { font-size: 0.36em; letter-spacing: 0; margin-left: 0.04em; vertical-align: super; }
+#hud .result.won .pos { color: var(--amber); }
+#hud .result .sub { font-size: 13px; color: var(--paper-3); letter-spacing: 0.14em; text-transform: uppercase; }
+
+/*
+ * The two halves, side by side.
+ *
+ * They answer different questions — who you beat, and how you drove — and
+ * stacking them made the card a column you scroll with your eyes, with the lap
+ * times pushed so far down that the total ended up below the fold of anybody's
+ * attention. Beside each other they are read in one glance, and the card gets
+ * back the height it was spending on nothing.
+ *
+ * Equal columns rather than content-sized, because the standings are five rows
+ * and the laps are three: sized to their contents the divider would sit off
+ * centre and move every time the field or the lap count changed. A rule down the
+ * middle at a fixed place is the thing that makes two lists read as one table.
+ *
+ * The shorter column hangs from the top rather than centring. Centred, the lap
+ * times would float against the middle of the names, which is the one
+ * arrangement that looks like a mistake rather than a choice.
+ */
+#hud .result .split {
+  margin: 18px 0 0;
+  padding: 0 0 16px;
+  border-bottom: 1px solid rgba(246, 239, 226, 0.16);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+/*
+ * And who else came in, which the card never said.
+ *
+ * A finishing position is a comparison, and a card that reports one without the
+ * field is asking the player to take its word for it. The roster is the point of
+ * the game — you beat the sales guy, or the office dog beat you — so the names
+ * go on, in order, with your own row lit.
+ */
+#hud .result .board {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+#hud .result .board li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 14.5px;
+  color: var(--paper-3);
+}
+#hud .result .board i {
+  font-style: normal;
+  min-width: 15px;
+  font-size: 13px;
+  color: var(--paper-3);
+}
+#hud .result .board .me { color: var(--paper); font-weight: 700; }
+#hud .result .board .me i { color: var(--amber); }
+#hud .result .board .you {
+  margin-left: auto;
+  font-size: 10.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--amber);
+}
+
+/* Inside the split it is a column, not a block, and it carries the rule. */
+#hud .result .log {
+  margin: 0;
+  padding-left: 24px;
+  border-left: 1px solid rgba(246, 239, 226, 0.14);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
 #hud .result .log div { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; }
 #hud .result .log span { font-size: 15px; color: var(--paper-2); }
 #hud .result .log em { font-style: normal; font-size: 19px; }
@@ -259,6 +361,57 @@ const CSS = `
 }
 #hud .result .sum span { font-size: 15px; color: var(--paper-2); }
 #hud .result .sum em { font-style: normal; font-size: 34px; line-height: 1; font-variation-settings: 'opsz' 96; letter-spacing: -0.02em; }
+
+/*
+ * The party.
+ *
+ * Three laps of an office is a small thing to win and the card was reporting it
+ * like a receipt. Winning should be *loud* — so the paper comes down over the
+ * whole screen rather than politely inside the panel, which is the difference
+ * between a card with confetti on it and a room with confetti in it.
+ *
+ * A fixed layer that clips its own overflow, rather than clipping to the card,
+ * and nothing in here takes a pointer: this sits over the result and the result
+ * is the thing being read.
+ *
+ * The pieces are plain divs animated off the Web Animations API rather than a
+ * keyframe each: forty elements needing forty different durations, delays,
+ * drifts and spins is exactly the case a stylesheet cannot express and a loop
+ * can. They are removed when the last one lands, so nothing is left animating
+ * behind a menu.
+ */
+#hud .party {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 1;
+}
+#hud .party b {
+  position: absolute;
+  top: -24px;
+  display: block;
+  border-radius: 1px;
+  will-change: transform, opacity;
+}
+
+/*
+ * The glow behind a win, which is the one piece of this that is not literal.
+ *
+ * A warm bloom sat under the panel and behind the confetti: it lifts the card off
+ * the room without touching its own background, and it is the reason the amber
+ * numeral reads as lit rather than merely coloured. Only on a win — second place
+ * gets the paper and not the sunrise.
+ */
+#hud .result.won::before {
+  content: '';
+  position: absolute;
+  inset: -60px -50px;
+  z-index: -1;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(242, 160, 43, 0.30), rgba(242, 160, 43, 0) 78%);
+  pointer-events: none;
+}
 
 /* -- the plan -------------------------------------------------------------- */
 
@@ -293,7 +446,32 @@ ${MINIMAP_CSS}
 #hud .hidden { display: none; }
 `;
 
+/**
+ * One row of the finishing order.
+ *
+ * Names rather than seat ids, because the card is read by a person and "seat 3"
+ * is not who beat them. Handed over already sorted — the ordering is a question
+ * about the race, which `main.ts` owns, not about the interface.
+ */
+export type Standing = {
+  /** 1-based, and its own field rather than the array index, so a tie could share one. */
+  place: number;
+  name: string;
+  /** The chair at this keyboard. Exactly one row has it. */
+  you: boolean;
+};
+
 export type ClayHud = {
+  /**
+   * Where to find the finishing order when the flag falls.
+   *
+   * A provider rather than an argument to `update`, and the reason is the call
+   * rate: the result card is built once, on the frame the race ends, while
+   * `update` runs 60 times a second for the whole race. Passing the standings in
+   * would mean sorting the field and allocating five rows every frame so that
+   * one frame in ten thousand could read them.
+   */
+  standings(provider: () => readonly Standing[]): void;
   /** Called once a frame with everything on screen. */
   update(
     race: Race,
@@ -439,7 +617,66 @@ export function createClayHud(): ClayHud {
 
   /** Where the player finished. Written by `update` on the frame the flag falls. */
   let finishedAt = 1;
-  let fieldSize = 1;
+  /** Empty until `main.ts` registers one, which it does before the first race. */
+  let standingsOf: () => readonly Standing[] = () => [];
+
+  /** Ordinal suffix, for a field that will never be big enough to need the teens rule. */
+  const SUFFIX = ['th', 'st', 'nd', 'rd', 'th', 'th', 'th', 'th'] as const;
+
+  /**
+   * Paper over the whole screen, for as long as it takes to land.
+   *
+   * Sized and coloured off the game's own palette rather than a rainbow: this
+   * room is amber, flame, green and pink, and confetti in colours the building
+   * does not contain reads as a widget somebody dropped on top of it.
+   *
+   * Everything is randomised per piece — column, size, fall time, delay, drift,
+   * spin, and which way up it starts — because forty identical arcs is a curtain
+   * rather than a celebration. The layer removes itself on the last landing.
+   */
+  function party(pieces: number): void {
+    const layer = el('div', 'party');
+    const colours = ['var(--amber)', 'var(--hot)', 'var(--paper)', 'var(--green)', 'var(--pink)'];
+    let longest = 0;
+
+    for (let i = 0; i < pieces; i++) {
+      const piece = el('b') as HTMLElement;
+      const wide = 5 + Math.random() * 6;
+      piece.style.width = `${wide.toFixed(1)}px`;
+      // Half of them are ribbons rather than squares, which is what stops a fall
+      // of rectangles reading as a fall of one rectangle.
+      piece.style.height = `${(wide * (Math.random() < 0.5 ? 0.42 : 1.5)).toFixed(1)}px`;
+      piece.style.background = colours[i % colours.length]!;
+      piece.style.left = `${(Math.random() * 100).toFixed(2)}%`;
+
+      const fall = 2200 + Math.random() * 2400;
+      const delay = Math.random() * 900;
+      longest = Math.max(longest, fall + delay);
+
+      piece.animate(
+        [
+          { transform: `translate3d(0, 0, 0) rotate(${(Math.random() * 360).toFixed(0)}deg)`, opacity: 1 },
+          {
+            transform:
+              `translate3d(${(Math.random() * 220 - 110).toFixed(0)}px, 105vh, 0) ` +
+              `rotate(${(Math.random() * 1080 - 540).toFixed(0)}deg)`,
+            opacity: 1,
+          },
+        ],
+        {
+          duration: fall,
+          delay,
+          // Gravity, near enough. A linear fall is a lift descending.
+          easing: 'cubic-bezier(0.32, 0.02, 0.62, 0.4)',
+          fill: 'forwards',
+        },
+      );
+      layer.append(piece);
+    }
+
+    root.append(layer);
+    setTimeout(() => layer.remove(), longest + 200);
+  }
 
   function renderResult(race: Race): void {
     const log = race.splits
@@ -449,20 +686,67 @@ export function createClayHud(): ClayHud {
           `<em class="num">${formatTime(t)}</em></div>`,
       )
       .join('');
-    // The headline is the position, not the word "Finish". A race has an outcome
-    // and burying it under the lap log is the one thing a result screen must not
-    // do — the first thing anybody looks for after three laps is whether they won.
-    const ordinal = ['', '1st', '2nd', '3rd', '4th', '5th', '6th'][finishedAt] ?? `${finishedAt}th`;
+
+    // The headline is the position, and now at the size that says so. A race has an
+    // outcome and burying it under the lap log is the one thing a result screen must
+    // not do — the first thing anybody looks for after three laps is whether they won.
     const won = finishedAt === 1;
+    const board = standingsOf()
+      .map(
+        (s) =>
+          `<li class="${s.you ? 'me' : ''}"><i class="num">${s.place}</i>` +
+          `<span>${s.name}</span>${s.you ? '<em class="you">You</em>' : ''}</li>`,
+      )
+      .join('');
+
+    result.classList.toggle('won', won);
     result.innerHTML =
-      `<h1 class="hd">${won ? 'Won' : ordinal}</h1>` +
-      `<div class="sub ui">${ordinal} of ${fieldSize} · ${race.laps} laps · Level 6</div>` +
-      `<div class="log">${log}</div>` +
+      `<div class="crown"><b class="pos num">${finishedAt}<sup>${SUFFIX[finishedAt] ?? 'th'}</sup></b></div>` +
+      `<div class="split"><ol class="board">${board}</ol>` +
+      `<div class="log">${log}</div></div>` +
       `<div class="sum"><span class="ui">Total</span>` +
       `<em class="num">${formatTime(race.totalTime)}</em></div>`;
+
+    /*
+     * The card arrives, rather than appearing.
+     *
+     * The numeral overshoots and the rows come in behind it on a stagger, which is
+     * the whole difference between a result and an announcement. Off the Web
+     * Animations API for the same reason the confetti is: this runs on an element
+     * that was rebuilt by `innerHTML` a line ago, and a CSS class would have to be
+     * removed before it could be re-added — which the second race of a session
+     * would never see.
+     */
+    result.querySelector('.pos')?.animate(
+      [
+        { transform: 'scale(0.4) rotate(-9deg)', opacity: 0 },
+        { transform: 'scale(1.12) rotate(2deg)', opacity: 1, offset: 0.62 },
+        { transform: 'scale(1) rotate(0deg)', opacity: 1 },
+      ],
+      { duration: 620, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' },
+    );
+
+    result.querySelectorAll('.board li').forEach((row, i) => {
+      row.animate(
+        [
+          { transform: 'translateX(-10px)', opacity: 0 },
+          { transform: 'translateX(0)', opacity: 1 },
+        ],
+        { duration: 300, delay: 180 + i * 70, easing: 'cubic-bezier(0.22, 0.61, 0.36, 1)', fill: 'backwards' },
+      );
+    });
+
+    // Loud for a win, a handful for the rest of the podium, nothing for the back
+    // half of the grid — confetti for fifth of five is the card being sarcastic.
+    if (finishedAt === 1) party(90);
+    else if (finishedAt <= 3) party(26);
   }
 
   return {
+    standings(provider) {
+      standingsOf = provider;
+    },
+
     setVisible(visible) {
       root.classList.toggle('away', !visible);
     },
@@ -481,7 +765,6 @@ export function createClayHud(): ClayHud {
         setHidden(bc, phase !== 'racing');
         if (phase === 'finished') {
           finishedAt = position;
-          fieldSize = field;
           renderResult(race);
         }
         // A split belongs to the lap that produced it. Nothing that ends a race or

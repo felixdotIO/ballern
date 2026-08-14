@@ -55,6 +55,20 @@ export type ClayLighting = {
    * is the frame the player is looking hardest at.
    */
   portrait(camera: THREE.Camera, focus: THREE.Vector3): void;
+  /**
+   * Resize the key's shadow map, which is the most expensive single thing in the
+   * frame that nobody ever looks at directly.
+   *
+   * One light casts, its camera is a 32 m box that travels with the chair, and
+   * so the map is rebuilt from scratch every frame over every casting object in
+   * the building. The size of that map is therefore a per-frame cost multiplied
+   * by itself, and it is the first thing the graphics dial reaches for.
+   *
+   * three.js allocates the render target lazily off `mapSize`, and having done
+   * so never looks at the number again — so the old target has to be thrown away
+   * by hand or this call is a no-op that looks like it worked.
+   */
+  shadowSize(px: number): void;
   dispose(): void;
 };
 
@@ -266,6 +280,17 @@ export function createClayLighting(scene: THREE.Scene): ClayLighting {
   const eye = new THREE.Vector3();
 
   return {
+    shadowSize(px) {
+      if (key.shadow.mapSize.width === px) return;
+      key.shadow.mapSize.set(px, px);
+      // The allocated target is stale the moment the size changes, and three.js
+      // will happily keep rendering into it forever. Dropped rather than
+      // resized, because `WebGLShadowMap` rebuilds it on the next frame it needs
+      // one — which is the next frame there is.
+      key.shadow.map?.dispose();
+      key.shadow.map = null as unknown as THREE.WebGLRenderTarget;
+    },
+
     update(focus) {
       key.intensity = RACE.key * LUX;
       rim.intensity = RACE.rim * LUX;

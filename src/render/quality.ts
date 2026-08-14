@@ -40,6 +40,20 @@ export type Quality = {
   auto(): void;
   /** False once the player has touched it. */
   automatic(): boolean;
+  /**
+   * Put a lid on it.
+   *
+   * Not the same dial as `step`, and the difference matters: `step` is a player
+   * picking an image and taking the controller off the automatic to get it,
+   * whereas this leaves the controller running and only tells it how much of the
+   * machine it is welcome to spend. Underneath the lid it still measures, still
+   * drops on a miss, still climbs on a win — it simply stops climbing sooner.
+   *
+   * That is what the graphics dial in settings.ts wants, because "Quiet" is not
+   * a request for a particular buffer size. It is a request to leave the fans
+   * alone on a machine whose speed nobody has measured yet.
+   */
+  limit(max: number): void;
 };
 
 type Options = {
@@ -96,6 +110,14 @@ export function createQuality({ min = 1.25, max = 2, target = 1000 / 60, apply }
    */
   let index = rungs.length - 1;
 
+  /*
+   * The highest rung currently on offer, which is not always the highest rung
+   * there is. `limit` moves it; everything that climbs reads it rather than
+   * `rungs.length - 1`, so a ceiling is obeyed by the controller and by the
+   * player's own arrow alike.
+   */
+  let top = rungs.length - 1;
+
   const history = new Float32Array(WINDOW);
   history.fill(target);
   let cursor = 0;
@@ -145,9 +167,48 @@ export function createQuality({ min = 1.25, max = 2, target = 1000 / 60, apply }
   apply(rungs[index]!);
 
   return {
+    limit(max) {
+      let next = 0;
+      for (let i = rungs.length - 1; i >= 0; i--) {
+        if (rungs[i]! <= max) {
+          next = i;
+          break;
+        }
+      }
+      if (next === top) return;
+      top = next;
+
+      /*
+       * Where the image goes when the lid moves, which is not symmetrical.
+       *
+       * Lowering it has to take the picture down immediately or the setting is
+       * one that appears to do nothing until the machine next happens to step.
+       *
+       * Raising it goes straight to the new ceiling rather than waiting for the
+       * controller to climb, and that is the same rule the constructor already
+       * follows for the same reason: it opens at the top and steps down if the
+       * machine cannot hold it. Climbing is deliberately slow — a full window of
+       * frames and a cooldown — because it is guarding against a controller that
+       * hunts. Somebody who has just pressed "High" is not a measurement to be
+       * distrusted, they are an instruction, and making them watch the image
+       * sharpen over the next two seconds reads as a setting that did not take.
+       *
+       * Unless they have pinned a rung by hand, in which case the lid is only
+       * ever a clamp: a ceiling is permission, not a preference, and it should
+       * not overwrite one.
+       */
+      const wanted = automatic ? top : Math.min(index, top);
+      if (wanted === index) return;
+      index = wanted;
+      apply(rungs[index]!);
+      history.fill(target);
+      filled = 0;
+      cooldown = COOLDOWN;
+    },
+
     step(direction) {
       automatic = false;
-      const next = Math.max(0, Math.min(rungs.length - 1, index + direction));
+      const next = Math.max(0, Math.min(top, index + direction));
       if (next === index) return;
       index = next;
       apply(rungs[index]!);
@@ -209,7 +270,7 @@ export function createQuality({ min = 1.25, max = 2, target = 1000 / 60, apply }
       // cost of one step up has to fit inside the headroom before we take it.
       if (m > target * 1.12 && index > 0) {
         index--;
-      } else if (m < target * 0.72 && index < rungs.length - 1) {
+      } else if (m < target * 0.72 && index < top) {
         index++;
       } else {
         return;
