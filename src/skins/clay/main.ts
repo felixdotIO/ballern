@@ -117,6 +117,21 @@ renderer.shadowMap.enabled = true;
 // PCF, not PCF-soft. A shadow with an edge on it is half of what separates a
 // room with a sun in it from a room with a soft box in it.
 renderer.shadowMap.type = THREE.PCFShadowMap;
+/*
+ * Shadows are scheduled by hand from the frame — see `paintShadows`.
+ *
+ * Left on automatic, three.js redraws every shadow map in the scene on every
+ * render, and there are two of them at 4096²: the building's sun over the whole
+ * floorplate, and the clay key that travels with the chair. That is 33 million
+ * depth texels and two extra passes over the building, and it was being paid on
+ * frames where nothing in the room had moved at all — the character select, a
+ * paused race — as well as twice per displayed frame on a 120 Hz panel.
+ *
+ * Nothing here reduces what a shadow *is*. Both maps are the same size, the same
+ * filter and the same bias they were; what changes is how often each is worth
+ * drawing again.
+ */
+renderer.shadowMap.autoUpdate = false;
 
 const scene = new THREE.Scene();
 
@@ -2034,6 +2049,42 @@ function applySize(force = false): void {
 }
 
 /**
+ * How often a shadow map is worth drawing again, which is not the same question
+ * for the two of them.
+ *
+ * The key travels with the chair, its frustum is 32 m across, and it is the light
+ * that puts the contact shadow directly under the castors — the one thing on
+ * screen that says the chair is on the floor rather than above it. It redraws on
+ * every frame that gets drawn, and there is nothing to save there.
+ *
+ * The sun does not move. Its frustum is the whole 92 m floorplate, so it is the
+ * expensive one, and the only thing in it that ever changes is five chairs: the
+ * mullion bars it throws the length of the room are the same bars they were when
+ * the building was compiled. Every other painted frame, then — 30 Hz against the
+ * 60 the panel gets. What that costs is a chair's *sun* shadow arriving one
+ * painted frame late, which at racing speed is 140 mm of a soft-edged shadow that
+ * already has the key's own crisp one sitting on top of it. What it saves is a
+ * 4096² depth pass and a second walk over the building, every other frame.
+ *
+ * Neither is skipped on the character select, tempting as it looks: with no
+ * simulation running the room is still not still — the turntable is a mesh being
+ * dragged, and picking a driver swaps the whole figure. A map held over from the
+ * frame before would leave the last character's shadow standing under the new
+ * one. The front end pays for its shadows; what it does not pay for is drawing
+ * them sixty times a second, which is what the paint rate below is about.
+ */
+let sunTurn = 0;
+const sun = shell.sun;
+sun.shadow.autoUpdate = false;
+
+function paintShadows(moving: boolean): void {
+  renderer.shadowMap.needsUpdate = true;
+  // Held still, the sun is redrawn alongside the key: one frame, one correct
+  // picture. It is only during a race that it is allowed to lag by one.
+  sun.shadow.needsUpdate = !moving || (sunTurn++ & 1) === 0;
+}
+
+/**
  * The quality ladder now moves two things, and the second is the one that matters.
  *
  * Measured on one frame: scene 979 draws and 4.2 M triangles in **2.3 ms**, the
@@ -2323,7 +2374,100 @@ let orbiting = false;
 let settling = 6;
 setTimeout(() => applySize(true), 400);
 
-function frame(): void {
+/**
+ * The most frames a second this will draw, and why there is a ceiling at all.
+ *
+ * A racing game is a latency product and the instinct is to draw as often as the
+ * panel will take it. That instinct is right up to the refresh rate and wrong past
+ * sixty, because of what a frame here costs and what the next one buys.
+ *
+ * What it costs: six full-screen passes over a buffer up to 2× the panel, two
+ * 4096² shadow maps, 979 draws over the building. What the second one buys: an
+ * image 8 ms fresher, on a simulation that runs at a fixed 120 Hz and does not
+ * care, in a game whose fastest object crosses 70 mm in that time. On a 120 Hz
+ * laptop panel the whole of that was being paid twice for one chair's width of
+ * freshness, and the fans could be heard doing it from across a room.
+ *
+ * So: sixty, which every panel worth the name can show and which is the beat the
+ * resolution controller in `render/quality.ts` is already aiming at. Nothing about
+ * the driving changes — input is read and the solver is stepped inside `tick`,
+ * off the wall clock, at the rate it always ran.
+ *
+ * And half of that with the front end up, because the front end is a still: one
+ * figure on a turntable, no simulation, no field. Thirty is plenty to swivel a
+ * chair through — except while somebody is actually dragging it, where the hand
+ * is on the object and every frame of the sixty is felt.
+ */
+const PAINT_HZ = 60;
+const IDLE_HZ = 30;
+
+/**
+ * The cap, applied as *whole refreshes skipped* rather than as a stopwatch.
+ *
+ * The obvious implementation is a wall clock: draw, and reject anything that
+ * arrives less than 16.67 ms later. It is wrong twice over on real panels. A 60 Hz
+ * one delivers callbacks 16.2–17.0 ms apart, jitter included, so a gate set at the
+ * exact figure throws away one frame in a handful and turns a solid sixty into a
+ * stutter at fifty-something. And a 144 Hz one — callbacks 6.94 ms apart — cannot
+ * make 16.67 out of them at all: it takes three, which is 48 fps. Capping a fast
+ * panel *below* sixty is precisely the thing this must not do.
+ *
+ * So the period is measured and the answer is an integer. Draw one refresh in
+ * `stride`, where stride is how many whole refreshes fit inside the target frame
+ * — 120 Hz gives 2 and lands on 60, 144 gives 2 and lands on 72, 240 gives 4 and
+ * lands on 60, and 60 gives 1 and is left alone. Never below the cap, and evenly
+ * spaced, which the stopwatch version is not: alternating 21 and 14 ms is judder
+ * whatever the average says.
+ *
+ * The period itself is the shortest of the last thirty gaps. Shortest, because a
+ * long gap is this machine failing to keep up, which is a fact about the renderer
+ * and not about the panel; and of a *short* window, which is the part that took a
+ * second attempt. Measured over the whole session it is pinned by whatever the
+ * fastest moment of the load was — the title card, before the building is being
+ * drawn — and a machine that then settles at four frames a second inherits an
+ * estimate of 16 ms, concludes it is on a 60 Hz panel with headroom to spare, and
+ * skips every other frame of a frame rate that was already the problem. Thirty
+ * callbacks is a quarter of a second at 120 Hz and a second at 30 fps: long enough
+ * to see past a hitch, short enough that it is always describing now.
+ *
+ * On a machine that cannot hold the cap, every recent gap exceeds the target, the
+ * stride comes out 1 and nothing is skipped. A frame rate ceiling has nothing to
+ * offer a machine that is under it.
+ */
+const REFRESH_WINDOW = 30;
+const refreshGaps = new Float32Array(REFRESH_WINDOW).fill(Infinity);
+let refreshAt = 0;
+let refreshMs = Infinity;
+let lastCall = 0;
+let stride = 1;
+let sinceDrawn = 0;
+
+function frame(now: number = performance.now()): void {
+  requestAnimationFrame(frame);
+
+  // Off the previous frame's verdict, which is one frame stale on the way into the
+  // menu and out of it — a single frame at the wrong cadence, on a transition that
+  // is already a fade. A drag is exempt: the hand is on the object, and every one
+  // of the sixty is felt.
+  const hz = staged && turning === null ? IDLE_HZ : PAINT_HZ;
+
+  const gap = now - lastCall;
+  lastCall = now;
+  // The floor is against a double callback, which is not the panel talking. There
+  // is no ceiling: a minute spent in a background tab arrives as one enormous gap,
+  // and the smallest of thirty numbers does not care about the largest of them.
+  if (gap > 2) {
+    refreshGaps[refreshAt] = gap;
+    refreshAt = (refreshAt + 1) % REFRESH_WINDOW;
+    refreshMs = Infinity;
+    for (const seen of refreshGaps) if (seen < refreshMs) refreshMs = seen;
+  }
+  // The 0.05 is against the floating point: 16.666/8.333 is 1.9999 on some
+  // machines, and a stride of 1 there is the whole saving thrown away.
+  stride = Math.max(1, Math.floor(1000 / hz / refreshMs + 0.05));
+  if (++sinceDrawn < stride) return;
+  sinceDrawn = 0;
+
   applySize(settling > 0);
   if (settling > 0) settling--;
   const dt = Math.min(clock.getDelta(), 0.05);
@@ -2501,6 +2645,9 @@ function frame(): void {
   }
   orbiting = staged;
 
+  // Which shadow maps this frame pays for. Before the render, because the scene
+  // pass inside it is what spends them.
+  paintShadows(!staged);
   post.render();
 
   // Not merely "whenever the menu is down": on the grid there is no lap, no clock and
@@ -2533,7 +2680,6 @@ function frame(): void {
     placeOf(localSeat),
     seats.length,
   );
-  requestAnimationFrame(frame);
 }
 
 frame();
@@ -2592,6 +2738,9 @@ if (import.meta.env.DEV) {
        */
       placeOf,
       roadOf,
+      /** What the paint gate has decided: the panel it thinks it is on, and the
+       *  refreshes it is skipping between frames. See `frame`. */
+      paint: () => ({ refreshMs, stride }),
       /*
        * The fixed-step tick and the key set, on the handle.
        *

@@ -58,6 +58,15 @@ const SUN_FOCUS = new THREE.Vector3(30, 0, 20);
 
 export type Shell = {
   group: THREE.Group;
+  /**
+   * The one light in the building that casts across the whole floorplate.
+   *
+   * Handed out so the frame can decide how often its shadow map is worth
+   * redrawing — see `paintShadows` in `skins/clay/main.ts`. Nothing else may
+   * touch it: where it is and how hard it is are facts about the hour of the
+   * day, and they are settled here.
+   */
+  sun: THREE.DirectionalLight;
   collision: CollisionVolume[];
   spawn: { position: readonly [number, number, number]; yaw: number };
   /** Extents for clamping the chase camera, and the ceiling it may rise to. */
@@ -421,7 +430,7 @@ function roomLights(group: THREE.Group, room: Room, luminaires: readonly THREE.V
  * shadows cool, and the fluorescents green-white, invisible at the window and
  * dominant in the core.
  */
-function buildLight(group: THREE.Group): void {
+function buildLight(group: THREE.Group): THREE.DirectionalLight {
   RectAreaLightUniformsLib.init();
 
   // Floor bounce, standing in for the global illumination we don't have. A
@@ -476,6 +485,10 @@ function buildLight(group: THREE.Group): void {
     win.lookAt(look);
     group.add(win);
   }
+
+  // Handed back so the frame can schedule its shadow map — see `Shell.sun`. It is
+  // the only light in here anything outside ever needs a name for.
+  return sun;
 }
 
 // ---------------------------------------------------------------------------
@@ -597,12 +610,13 @@ export function buildFloorplate(): Shell {
     collision.push({ label, size, centre });
   }
 
-  buildLight(group);
+  const sun = buildLight(group);
   group.add(batch.flush());
   group.add(buildExterior());
 
   return {
     group,
+    sun,
     collision,
     spawn: SPAWN,
     bounds: {

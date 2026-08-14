@@ -366,8 +366,9 @@ export function createClayPost(
 
   return {
     render() {
-      // The one shadow update of the frame, spent by the scene pass below.
-      renderer.shadowMap.needsUpdate = true;
+      // The shadow maps are scheduled by the frame rather than here — see
+      // `paintShadows` in main.ts — and whatever it asked for is spent by the
+      // scene pass below, which is the only pass in the chain that draws the room.
       renderer.setRenderTarget(sceneTarget);
       renderer.render(scene, camera);
 

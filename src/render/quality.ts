@@ -101,6 +101,8 @@ export function createQuality({ min = 1.25, max = 2, target = 1000 / 60, apply }
   let cursor = 0;
   let filled = 0;
   let cooldown = COOLDOWN;
+  /** Frames in a row past the stall ceiling. See `sample`. */
+  let stalls = 0;
 
   const sorted = new Float32Array(WINDOW);
 
@@ -183,19 +185,37 @@ export function createQuality({ min = 1.25, max = 2, target = 1000 / 60, apply }
       const ms = dt * 1000;
 
       /**
-       * And a stall is not a frame rate either.
+       * And a stall is not a frame rate either — but a run of them is.
        *
        * A shader compiling, a garbage collection, the compositor losing a beat:
        * these are single events, they are not what the next second will look
        * like, and reacting to one by resizing the entire post chain makes the
-       * following frame worse. Anything past three times the target is dropped
-       * rather than clamped — clamping still lets a run of them drag the median
-       * down a rung. A machine genuinely running at 30 fps is well inside this
-       * and is still measured honestly.
+       * following frame worse. So anything past three times the target is thrown
+       * away rather than clamped, because clamping lets one hitch drag the median
+       * down a rung.
+       *
+       * Thrown away *unconditionally*, though, that rule had a hole in it, and the
+       * hole was exactly the machine this controller exists for. A machine holding
+       * 30 fps is well inside the ceiling and is measured honestly. A machine at
+       * 15 is outside it on every single frame — so every sample was discarded,
+       * the history stayed full of the target it was initialised with, the median
+       * read a perfect 60, and the ladder sat at the top rung for the whole
+       * session. The worse the machine, the less willing this was to help it.
+       *
+       * Three in a row, then, and it is no longer a stall: a stall does not
+       * repeat. The run is admitted at the ceiling rather than at its true value,
+       * which is deliberately conservative — it steps the ladder down one rung per
+       * cooldown instead of diving to the floor on the first bad second — and the
+       * machine walks down until it finds a rung it can hold.
        */
-      if (ms > target * 3) return;
+      const stall = ms > target * 3;
+      stalls = stall ? stalls + 1 : 0;
+      if (stall && stalls < 3) return;
 
-      history[cursor] = ms;
+      // A run of them goes in at the ceiling rather than at its true value, which
+      // is deliberately conservative: the ladder then steps down a rung per
+      // cooldown rather than diving to the floor on the first bad second.
+      history[cursor] = stall ? target * 3 : ms;
       cursor = (cursor + 1) % WINDOW;
       if (filled < WINDOW) filled++;
 
