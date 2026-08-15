@@ -211,9 +211,40 @@ export function collapse(root: THREE.Object3D, { detail = 'keep' }: CollapseOpti
       // An LOD being flattened is not lifted out and not descended into wholly:
       // only its first level is, and the rest never reach the merge. Descending
       // into all of them would bake every level on top of itself.
+      /*
+       * An LOD keeps its nearest level and loses the rest — as a whole object,
+       * not as geometry fed to the merge.
+       *
+       * This used to descend into the level and let its meshes be normalized,
+       * transformed and merged like anything else, and the geometry came out
+       * wrong: a task chair whose backrest spans y 0.41→1.03 arrived spanning
+       * −1.00→+1.00. Two metres tall, half of it under the floor. Measured on a
+       * single chair, three runs, identical every time — and `detail: 'keep'` on
+       * the same input is correct to the millimetre, which is what localised it.
+       *
+       * The kit is exported with meshopt compression and quantized attributes,
+       * so a level's positions are not in metres until its own matrix is applied;
+       * pulling that geometry out of its node and re-transforming it by hand is
+       * where the metres were lost. That is the whole reason this path exists as
+       * an optimisation, and it is not worth a floor full of two-metre chairs.
+       *
+       * So the level is lifted out intact, inside a holder carrying its transform
+       * relative to the collapse root. The saving that mattered is still taken —
+       * the other levels are dropped, so the low-poly duplicate never reaches the
+       * scene — and the geometry is the geometry Blender exported.
+       */
       if (it.isLOD && detail === 'high') {
         const nearest = (node as THREE.LOD).levels[0]?.object;
-        if (nearest) visit(nearest);
+        if (nearest) {
+          const holder = new THREE.Group();
+          relative.multiplyMatrices(inverse, node.matrixWorld);
+          // Onto the holder rather than onto the level itself: the level carries
+          // its own offset inside the asset, and writing over that would move the
+          // model relative to the origin the kit authored it around.
+          relative.decompose(holder.position, holder.quaternion, holder.scale);
+          holder.add(nearest);
+          kept.push(holder);
+        }
         return;
       }
 
@@ -254,7 +285,38 @@ export function collapse(root: THREE.Object3D, { detail = 'keep' }: CollapseOpti
 
   for (const { material, cast, receive, order, parts } of buckets.values()) {
     const merged = parts.length === 1 ? parts[0]! : mergeGeometries(parts, false);
-    if (!merged) continue;
+
+    /*
+     * A merge that fails gives the geometry back, it does not eat it.
+     *
+     * `mergeGeometries` returns null whenever the parts do not share an
+     * identical attribute set — one mesh in the bucket carrying UVs that the
+     * others do not is enough. This used to be `if (!merged) continue`, which
+     * silently deleted *every object drawn with that material*: the bench desks
+     * disappeared out of the open-plan office and took nothing else with them,
+     * so what was left standing was rows of 1400 mm Stellwand screens behind
+     * chairs, which reads as furniture with absurdly long backs rather than as
+     * furniture that is missing.
+     *
+     * Nothing logged it, nothing failed, and the frame looked deliberate. That
+     * is the worst shape a bug can take, and the fix is not to make the merge
+     * cleverer — it is to make failure cost draw calls instead of objects.
+     */
+    if (!merged) {
+      for (const part of parts) {
+        const one = new THREE.Mesh(part, material);
+        one.castShadow = cast;
+        one.receiveShadow = receive;
+        one.renderOrder = order;
+        group.add(one);
+      }
+      console.warn(
+        `[batch] ${parts.length} parts sharing "${material.name || material.type}" could not be ` +
+          `merged (mismatched vertex attributes) — kept as separate draws rather than dropped.`,
+      );
+      continue;
+    }
+
     const mesh = new THREE.Mesh(merged, material);
     mesh.castShadow = cast;
     mesh.receiveShadow = receive;

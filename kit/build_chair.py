@@ -59,7 +59,19 @@ SEAT_W = 0.47
 SEAT_D = 0.44
 BASE_R = 0.33
 CASTOR_R = 0.025
-BACK_H = 0.55
+# Backrest height.
+#
+# 550 is the mid-back office chair, and it stays 550 on the one that stands at a
+# desk. The race chair does not keep it, and the reason is proportion rather than
+# accuracy: its seat is wound to the bottom of the gas lift at 320, so a 550 back
+# stands 1.72 times the height of the thing it is bolted to, where the desk chair
+# manages 1.17. That is what a wound-down chair genuinely looks like — and from
+# the chase camera, two metres behind it and slightly above, it reads as a wardrobe
+# on castors. Every screenshot of this game is taken from that angle.
+#
+# 460 puts the race chair back at 1.44, which is still visibly a task chair and no
+# longer the tallest thing in the frame. The gate below moves with it.
+BACK_H = 0.46 if RACE else 0.55
 
 K.reset()
 
@@ -236,9 +248,10 @@ K.assert_bounds(chair, {
     # A five-point star is not rotationally symmetric: across the flats is
     # genuinely narrower than across the points, so depth < width is correct.
     "depth":  (0.60, 0.74),
-    # A mid-back task chair with no headrest — and 90 mm shorter when it is wound
-    # down to the bottom of its travel.
-    "height": (1.00, 1.10) if not RACE else (0.83, 0.95),
+    # A mid-back task chair with no headrest. The race one is shorter twice over:
+    # 150 mm of gas lift wound out from under it, and a backrest cut to match the
+    # seat it now sits on — see BACK_H.
+    "height": (1.00, 1.10) if not RACE else (0.74, 0.86),
     "floor":  (-0.002, 0.006),
 })
 

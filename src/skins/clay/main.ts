@@ -96,7 +96,7 @@ import {
   binder,
   cloud,
   extinguisher as extinguisherArt,
-  inviteCard,
+  poempel,
   microwaveBomb,
   puddle as puddleArt,
 } from './itemArt';
@@ -698,7 +698,7 @@ let spills = 0;
 
 const itemArt: ItemArt = {
   binder: binder(),
-  card: inviteCard(),
+  card: poempel(),
   microwave: microwaveBomb(),
   extinguisher: extinguisherArt(),
   puddle: () => puddleArt(makeRng(seedFrom(`clay.puddle.${spills++}`))),
@@ -1815,6 +1815,30 @@ function onInterface(target: EventTarget | null): boolean {
   return target instanceof Element && target.closest('.rail, .briefing') !== null;
 }
 
+/**
+ * When the player last touched anything, in wall-clock milliseconds.
+ *
+ * The menu's frame cap exists to stop a still portrait heating a laptop, and as
+ * first written it read "not currently dragging the seat" — which is not the
+ * same question as "nobody is doing anything". Walking the rail with the arrow
+ * keys, hovering a driver tile, rolling the wheel over the roster: all of it ran
+ * at the idle rate, so every one of those got its answer up to a frame and a
+ * half late and the whole front end felt half a beat behind the hand.
+ *
+ * Idle is a thing you become, not a thing you are by default. Any input at all
+ * makes the next second run at full rate, and the cap comes back once the
+ * screen has genuinely been left alone — which is exactly when nobody can see
+ * the difference and the fans are the only thing still paying.
+ */
+let lastInput = 0;
+const AWAKE_FOR = 1000;
+
+for (const kind of ['pointerdown', 'pointermove', 'pointerup', 'wheel', 'keydown'] as const) {
+  // Capture, so a handler that stops propagation on the rail cannot hide the
+  // fact that somebody is using it — this only ever reads a timestamp.
+  addEventListener(kind, () => (lastInput = performance.now()), { capture: true, passive: true });
+}
+
 addEventListener('pointerdown', (e) => {
   if (!staged || turning !== null || e.button !== 0 || onInterface(e.target)) return;
   turning = e.pointerId;
@@ -2111,7 +2135,10 @@ function tick(dt: number): void {
     const v = chair.body.linvel();
     const speed = Math.hypot(v.x, v.z);
     const scale = speed > 0.001 ? 1 / speed : 0;
-    race.update(h, p.x, p.y - FLOOR_OFFSET, p.z, v.x * scale, v.z * scale, speed);
+    // Road rather than driven distance — the grid slot comes off, exactly as it
+    // does for the standings, so a lap is measured from the line and not from
+    // whichever slot this chair happened to start on.
+    race.update(h, p.x, p.y - FLOOR_OFFSET, p.z, v.x * scale, v.z * scale, speed, roadOf(localSeat));
     /*
      * The field, advanced in the same fixed step the player is.
      *
@@ -2332,6 +2359,15 @@ setTimeout(() => applySize(true), 400);
 
 /** Wall-clock stamp of the last frame actually drawn. */
 let drawnAt = 0;
+/**
+ * Whether the frame just drawn was one the idle cap had slowed down.
+ *
+ * The quality controller judges the machine on wall-clock frame deltas, and a
+ * delta stretched on purpose is not evidence of anything. Without this the menu
+ * would read its own 30 fps power saving as a machine that cannot cope and walk
+ * the resolution down for a reason it invented itself.
+ */
+let cappedFrame = false;
 
 /**
  * The menu is a still, and it was being drawn like a lap.
@@ -2344,9 +2380,10 @@ let drawnAt = 0;
  * picking a driver, which makes it the single worst thing in here per unit of
  * anybody looking at it.
  *
- * Thirty is plenty for a swivel and nowhere near enough for a drag, hence the
- * exception: while a pointer is actually turning the seat the cap comes off,
- * because that is the one moment the menu has latency worth protecting.
+ * Thirty is plenty for a swivel nobody is touching, and nowhere near enough for
+ * a screen somebody is using — see `lastInput`, which is what decides between
+ * the two. Every menu interaction there is, not merely a drag, takes the cap off
+ * for the second that follows it.
  */
 const MENU_FPS = 30;
 
@@ -2362,7 +2399,9 @@ const MENU_FPS = 30;
  * drawing frames nobody asked for, not to hit a number.
  */
 function due(now: number): boolean {
-  const fps = staged && turning === null ? MENU_FPS : currentFrameCap();
+  const idle = staged && turning === null && now - lastInput > AWAKE_FOR;
+  cappedFrame = idle;
+  const fps = idle ? MENU_FPS : currentFrameCap();
   if (fps === 0) {
     drawnAt = now;
     return true;
@@ -2427,6 +2466,27 @@ function frame(): void {
 
   if (staged) {
     keys.clear();
+    /*
+     * The menu defends its own frame rate, and only its own.
+     *
+     * The note further down explains why the controller does not *listen* to the
+     * character select, and every word of it still holds: the menu is a different
+     * program, its opening frames are its most expensive, and a verdict formed
+     * there and carried into the race is a verdict about the wrong thing.
+     *
+     * What that reasoning missed is the other direction. A ladder that opens at
+     * the top and is never sampled until the flag drops means a machine which
+     * cannot hold the top rung *on the menu* is never told — so the portrait sits
+     * there at 27 ms a frame, and every hover, every arrow key and every degree
+     * of swivel arrives a third of a beat late, for as long as somebody is
+     * choosing a driver. Measured on an M4: 27.4 ms at the top rung against
+     * 16.7 ms two rungs down, which is 36 fps against a locked 60.
+     *
+     * So it samples, downward only. It can notice it is drowning; it cannot
+     * decide the race looks good. And not while the idle cap is stretching the
+     * delta on purpose, because that is a slow frame nobody is waiting on.
+     */
+    if (!cappedFrame) quality.sample(dt, true);
     // The camera is the only thing still moving, and it is the point of the
     // screen: the menu picks the driver and the chair, so it looks at them. The
     // light pool travels with it, because the pool is the building's own fittings
@@ -2656,6 +2716,27 @@ if (import.meta.env.DEV) {
        */
       tick,
       keys,
+      /**
+       * The standings, with their working shown.
+       *
+       * `placeOf` is three lines and every one of them is a subtraction, so when
+       * the number on screen is wrong the only useful question is which of the
+       * inputs is. This hands back all of them at once: what each chair has
+       * driven, what its grid slot is worth, the road position that comes out,
+       * and the place that follows. A wrong `place` next to a sane `road` column
+       * is a bug in the comparison; a `road` that is not growing is a bug in the
+       * tracking, and they are fixed in completely different files.
+       */
+      standings: () => ({
+        me: localSeat,
+        place: placeOf(localSeat),
+        rows: seats.map((s) => ({
+          id: s.id,
+          driven: +s.progress.toFixed(2),
+          back: +(seatSlots[s.id]?.back ?? 0).toFixed(2),
+          road: +roadOf(s.id).toFixed(2),
+        })),
+      }),
       pool,
       post,
       CAM,

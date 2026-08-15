@@ -5,7 +5,9 @@
  * and they are worth stating because getting any of them subtly wrong is the
  * difference between a track and a room you drive around in:
  *
- *  - The lap only counts if you took every gate, in order, the right way round.
+ *  - The lap counts when you cross the line having actually driven a lap's worth
+ *    of road to get there. See `completeLap` for why that replaced a checkpoint
+ *    sequence, and what the sequence was doing wrong.
  *  - The clock starts on GO and never stops until the last crossing.
  *  - A lap's time is the gap between two crossings of the line, not the sum of
  *    anything. Timing has to survive a crash, a reverse and a reset.
@@ -34,8 +36,22 @@ export type Phase =
   | 'finished';
 
 export type Race = {
-  /** Advance by one fixed substep. Call from inside the physics step. */
-  update(h: number, x: number, y: number, z: number, headingX: number, headingZ: number, speed: number): void;
+  /**
+   * Advance by one fixed substep. Call from inside the physics step.
+   *
+   * `road` is how far along the route the chair has driven, in metres from the
+   * start line. It is what a lap is now counted in — see `completeLap`.
+   */
+  update(
+    h: number,
+    x: number,
+    y: number,
+    z: number,
+    headingX: number,
+    headingZ: number,
+    speed: number,
+    road: number,
+  ): void;
   /** Leave the grid. Ignored unless we are on it. */
   start(): void;
   /** Back to the grid, clock cleared. */
@@ -55,7 +71,13 @@ export type Race = {
   /** Every completed lap, in order. */
   readonly splits: readonly number[];
   readonly best: number | null;
-  /** Index into GATES of the plane you are being asked for next. */
+  /**
+   * The next named place on the route, as an index into GATES.
+   *
+   * A signpost, not a rule. Nothing is required of it, nothing is invalidated by
+   * missing it, and it is derived from how far round you are rather than from a
+   * sequence you have to satisfy — see the note above `completeLap`.
+   */
   readonly gate: number;
   /** Where that gate is. */
   readonly gateAt: readonly [number, number];
@@ -184,6 +206,70 @@ function routeHeading(x: number, y: number, z: number, out: [number, number]): v
   out[1] = dz / len;
 }
 
+/**
+ * How far along the route each gate stands, in metres from the start line.
+ *
+ * Computed once off the polyline rather than authored, because a gate's arc
+ * length is not a fact anybody should have to keep in step by hand: move a wall
+ * in `plan.ts`, the route bends, and these follow.
+ *
+ * Only the signpost uses them now. They are what lets "the next place you are
+ * heading for" be a question about where you are, rather than about which planes
+ * you have satisfied.
+ */
+const GATE_S: number[] = (() => {
+  let cum = 0;
+  const at: number[] = [];
+  const marks = GATES.map(() => ({ s: 0, d: Infinity }));
+  for (let i = 0; i < ROUTE.length; i++) {
+    const a = ROUTE[i]!;
+    const b = ROUTE[(i + 1) % ROUTE.length]!;
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    // Sampled rather than solved: 0.5 m is far finer than any decision made off
+    // the result, and it keeps this to eight lines nobody has to re-derive.
+    for (let t = 0; t < len; t += 0.5) {
+      const k = len > 1e-6 ? t / len : 0;
+      const px = a[0] + (b[0] - a[0]) * k;
+      const pz = a[1] + (b[1] - a[1]) * k;
+      const py = a[2] + (b[2] - a[2]) * k;
+      for (let g = 0; g < GATES.length; g++) {
+        const gate = GATES[g]!;
+        const dy = (py - (gate.y ?? 0)) * LEVEL_WEIGHT;
+        const d = (px - gate.at[0]) ** 2 + (pz - gate.at[1]) ** 2 + dy * dy;
+        if (d < marks[g]!.d) {
+          marks[g]!.d = d;
+          marks[g]!.s = cum + t;
+        }
+      }
+    }
+    cum += len;
+  }
+  for (const m of marks) at.push(m.s);
+  return at;
+})();
+
+/** Total length of one lap of the racing line, in metres. */
+const LAP_LENGTH: number = (() => {
+  let cum = 0;
+  for (let i = 0; i < ROUTE.length; i++) {
+    const a = ROUTE[i]!;
+    const b = ROUTE[(i + 1) % ROUTE.length]!;
+    cum += Math.hypot(b[0] - a[0], b[1] - a[1]);
+  }
+  return cum;
+})();
+
+/**
+ * How much of a lap you must have driven for a crossing of the line to count.
+ *
+ * Three quarters, and the slack is deliberate. The road figure is a projection
+ * onto the racing line, so cutting a corner tightly measures a little short of
+ * the line's own length, and demanding the full distance would refuse a lap
+ * somebody genuinely drove. Three quarters is far more than any legal line can
+ * save and far less than any shortcut worth taking would skip.
+ */
+const LAP_SHARE = 0.75;
+
 export function createRace(): Race {
   let phase: Phase = 'grid';
   let countdown = COUNTDOWN;
@@ -198,6 +284,9 @@ export function createRace(): Race {
 
   // The previous substep's position, so a crossing is a segment against a plane
   // rather than a point on one side of it.
+  /** Road distance at the last counted crossing. What a lap is measured from. */
+  let roadAtLap = 0;
+
   let px = 0;
   let pz = 0;
   let seeded = false;
@@ -233,6 +322,36 @@ export function createRace(): Race {
     return Math.abs(lateral) <= g.halfWidth;
   }
 
+  /**
+   * ---- why the checkpoints are gone ----------------------------------------
+   *
+   * The rule used to be: cross all fourteen gates, in order, the right way
+   * round. It is the classic answer and it was quietly ruining races.
+   *
+   * A gate is an invisible plane of a fixed width, and several of them were
+   * barely wider than the chair — "Open Plan South" was 2.9 m, in an open-plan
+   * room, where there is no doorway to justify any particular number. Only the
+   * *expected* gate was ever tested, so missing one did not cost you a gate, it
+   * jammed the sequence for the rest of the race: you could drive three perfect
+   * laps afterwards and the counter would never move again. Simulated on the
+   * real route, driving 1.5 m off the racing line — about one chair's width, in
+   * a room the size of a tennis court — completed **zero** laps out of three,
+   * and there was nothing on screen to say why.
+   *
+   * So the lap is counted in the one quantity that is already continuous,
+   * already correct, and already trusted by the standings: distance driven
+   * along the route. Cross the line having driven a lap's worth of road, and it
+   * is a lap. Reversing over the line gains nothing, because road goes *down*
+   * when you drive backwards. Cutting across the floorplate gains nothing,
+   * because road is measured on the route and the nearest-point search is
+   * windowed — it does not follow a chair that teleports across a room.
+   *
+   * The plane crossing survives, and only for what it was always best at:
+   * stamping the exact moment. Resolving the finish to the segment the chair
+   * travelled puts the recorded time within about 8 ms, which is the whole
+   * argument at the top of this file. What it no longer does is decide whether
+   * the lap was legal.
+   */
   function completeLap(): void {
     const time = lapTime;
     splits.push(time);
@@ -250,10 +369,11 @@ export function createRace(): Race {
   }
 
   return {
-    update(h, x, y, z, headingX, headingZ, speed) {
+    update(h, x, y, z, headingX, headingZ, speed, road) {
       if (!seeded) {
         px = x;
         pz = z;
+        roadAtLap = road;
         seeded = true;
       }
 
@@ -269,12 +389,30 @@ export function createRace(): Race {
         lapTime += h;
         totalTime += h;
 
-        // Only ever the gate being asked for. Sequence is the rule, so there is
-        // nothing to gain from testing the others and a shortcut to lose.
-        if (crossed(GATES[gate]!, x, y, z)) {
-          gate = (gate + 1) % GATES.length;
-          if (gate === 1) completeLap();
+        /*
+         * One plane, and a distance to justify it. GATES[0] is the finish line;
+         * nothing else is tested any more, by anything.
+         */
+        if (crossed(GATES[0]!, x, y, z) && road - roadAtLap >= LAP_LENGTH * LAP_SHARE) {
+          roadAtLap = road;
+          completeLap();
         }
+
+        /*
+         * And the signpost follows the chair rather than leading it: the next
+         * named place is simply the first one further round the lap than you
+         * are. It cannot jam, because there is no state in it to jam — miss a
+         * doorway and it names the one after, which is what a sign should do.
+         */
+        const round = ((road % LAP_LENGTH) + LAP_LENGTH) % LAP_LENGTH;
+        let next = 0;
+        for (let i = 0; i < GATE_S.length; i++) {
+          if (GATE_S[i]! > round) {
+            next = i;
+            break;
+          }
+        }
+        gate = next;
 
         routeHeading(x, y, z, tangent);
         const against = headingX * tangent[0] + headingZ * tangent[1] < -0.35;
@@ -304,6 +442,10 @@ export function createRace(): Race {
       splits = [];
       best = null;
       pending = null;
+      // `roadAtLap` is re-seeded from the first update rather than zeroed: a
+      // restart puts the chair back on its slot, which is a *negative* road
+      // position, and zeroing here would credit the player with the grid's own
+      // depth on the way to the first crossing.
       seeded = false;
     },
 

@@ -20,8 +20,21 @@
  */
 
 export type Quality = {
-  /** Feed it every frame's wall-clock delta, in seconds. */
-  sample(dt: number): void;
+  /**
+   * Feed it every frame's wall-clock delta, in seconds.
+   *
+   * `downOnly` lets a scene defend its own frame rate without being trusted to
+   * raise anybody else's. The character select needs exactly that: it must be
+   * able to notice that the rung it opened on is one this machine cannot hold,
+   * but it must not be the thing that decides the race looks good at 2×, for
+   * every reason in the note above the call site in main.ts.
+   *
+   * Downward is safe in a way upward is not, and the asymmetry is not arbitrary:
+   * the menu is the *cheaper* scene — one figure, no field, no simulation — so a
+   * menu that cannot hold the beat is proof the race cannot either. The reverse
+   * says nothing at all.
+   */
+  sample(dt: number, downOnly?: boolean): void;
   /** Current buffer scale, for the readout. */
   ratio(): number;
   /** Median frame time over the recent window, in milliseconds. */
@@ -226,7 +239,7 @@ export function createQuality({ min = 1.25, max = 2, target = 1000 / 60, apply }
     },
     automatic: () => automatic,
 
-    sample(dt) {
+    sample(dt, downOnly = false) {
       if (!automatic) return;
       /**
        * A frame nobody watched is not evidence about anything.
@@ -270,7 +283,7 @@ export function createQuality({ min = 1.25, max = 2, target = 1000 / 60, apply }
       // cost of one step up has to fit inside the headroom before we take it.
       if (m > target * 1.12 && index > 0) {
         index--;
-      } else if (m < target * 0.72 && index < top) {
+      } else if (m < target * 0.72 && index < top && !downOnly) {
         index++;
       } else {
         return;

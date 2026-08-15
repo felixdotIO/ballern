@@ -79,6 +79,17 @@ const MAT = {
   sleeve: lit(0xa97f56, 0.03, { roughness: 0.95 }),
   /** RAL 3000 with the black band the pressure label is printed on. */
   extinguisherRed: lit(0x9d1f1f, 0.14),
+  /**
+   * The Pömpel: beech shaft, red rubber cup.
+   *
+   * Every Hausmeister cupboard in Germany has one and it is always this — a
+   * turned handle gone slightly grey with use, and a bell of rubber in a red
+   * that has never once been described as tasteful. Rougher than the
+   * extinguisher's paint and darker than its red, because it is rubber and it
+   * has been in a bucket.
+   */
+  pömpelWood: lit(0xc9a06a, 0.06, { roughness: 0.88 }),
+  pömpelRubber: lit(0x8e1b16, 0.1, { roughness: 0.82 }),
   ink: lit(0x1c1a19, 0.0, { roughness: 0.7 }),
   /** The dark inside of an oven door, and the gauge glass on a bottle. */
   glass: lit(0x14181c, 0.0, { roughness: 0.2, metalness: 0.4 }),
@@ -330,31 +341,87 @@ export function binder(): THREE.Group {
  * with a **clock** on it, a **time block** under the title, and one **accept
  * button** — and the joke is that there is only one and it is not "no".
  */
-export function inviteCard(): THREE.Group {
+/**
+ * The Pömpel.
+ *
+ * ---- why it replaced the meeting invite -----------------------------------
+ *
+ * The thrown item used to be a calendar invite: a 300 × 210 card, flat, lying in
+ * the plane it flew in. It was a good joke on a slide and a bad object in a
+ * room. Edge-on — which is most of a throw — a 14 mm sheet is a *line*, so the
+ * thing you had just fired vanished for most of its flight and reappeared as a
+ * flicker when it spun. Nothing about it read as an impact either: a card does
+ * not hit somebody, and the stun it caused had to be taken on trust.
+ *
+ * A Pömpel is the opposite object in every way that matters here. It is the
+ * length of a forearm, it has a heavy end and a light end so its spin is legible,
+ * and it is unambiguous from any angle at any distance — a red bell on a stick.
+ * Every Hausmeister cupboard in the building has one, which is the only
+ * justification this game has ever needed, and being hit by one is self-evidently
+ * an event.
+ *
+ * ---- the size ---------------------------------------------------------------
+ *
+ * 440 mm overall against the card's 300, and the part that reads is the 120 mm
+ * cup rather than a 14 mm edge. Modelled at true size: a real one is 400-480 and
+ * the game is full of correctly-dimensioned office furniture to be judged
+ * against, so an item scaled for legibility rather than for truth is the one
+ * thing on the floorplate that looks wrong next to a desk.
+ */
+export function poempel(): THREE.Group {
   const build = new THREE.Group();
-  const W = 0.3;
-  const D = 0.21;
 
-  part(build, MAT.card, [W, 0.014, D], [0, 0, 0], undefined, 0.006);
-  // Header band, proud of the face so it catches its own edge of light.
-  part(build, MAT.cardBar, [W, 0.005, 0.056], [0, 0.0085, -D / 2 + 0.028], undefined, 0.002);
-  // The clock on the header: a ring with two hands, which is the one glyph that
-  // says "meeting" without a word of type.
-  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.016, 0.0035, 6, 16), MAT.card);
-  ring.rotation.x = Math.PI / 2;
-  ring.position.set(-W / 2 + 0.032, 0.0115, -D / 2 + 0.028);
-  build.add(ring);
-  part(build, MAT.card, [0.0035, 0.003, 0.013], [-W / 2 + 0.032, 0.0115, -D / 2 + 0.0225], undefined, 0.001);
-  part(build, MAT.card, [0.011, 0.003, 0.0035], [-W / 2 + 0.0375, 0.0115, -D / 2 + 0.028], undefined, 0.001);
+  /*
+   * Laid along +X, not up +Y.
+   *
+   * A thrown item is spun about the axis it travels on by `projectiles.ts`, and
+   * the shapes in this file are authored lying in the plane they fly in. A
+   * plunger modelled standing up would cartwheel end over end about its own
+   * length, which is the one motion a thrown stick does not make.
+   */
+  const SHAFT = 0.32;
+  const CUP_R = 0.06;
 
-  // Title rule, then the time block under it — a filled bar, because that is what
-  // a booked half hour looks like in every calendar ever drawn.
-  part(build, MAT.cardRule, [0.19, 0.003, 0.014], [-0.03, 0.008, -0.012], undefined, 0.001);
-  part(build, MAT.cardBar, [0.076, 0.004, 0.026], [-0.096, 0.0085, 0.028], undefined, 0.002);
-  part(build, MAT.cardRule, [0.062, 0.003, 0.009], [-0.006, 0.008, 0.03], undefined, 0.001);
+  // The shaft: turned beech, slightly barrelled, with the collar the cup grips.
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.019, SHAFT, 12), MAT.pömpelWood);
+  shaft.rotation.z = Math.PI / 2;
+  shaft.position.x = SHAFT / 2;
+  build.add(shaft);
 
-  // The accept button, and there is only one.
-  part(build, MAT.cardBar, [0.066, 0.006, 0.028], [0.098, 0.0095, 0.066], undefined, 0.003);
+  // The knob on the end, so the silhouette has a full stop rather than a cut.
+  const knob = new THREE.Mesh(new THREE.SphereGeometry(0.023, 12, 8), MAT.pömpelWood);
+  knob.position.x = SHAFT;
+  build.add(knob);
+
+  /*
+   * The cup, as a lathe rather than a cone.
+   *
+   * A cone reads as a party hat. What makes a plunger a plunger is that the wall
+   * *curves* — narrow at the collar, bellying out, then turning back in to a lip
+   * that sits flat on the floor. Six points around that profile is enough to see
+   * it and cheap enough to throw a hundred of.
+   */
+  const profile: THREE.Vector2[] = [
+    new THREE.Vector2(0.019, 0),
+    new THREE.Vector2(0.03, 0.012),
+    new THREE.Vector2(0.048, 0.03),
+    new THREE.Vector2(CUP_R, 0.062),
+    new THREE.Vector2(CUP_R - 0.004, 0.086),
+    new THREE.Vector2(CUP_R - 0.016, 0.092),
+  ];
+  const cup = new THREE.Mesh(new THREE.LatheGeometry(profile, 16), MAT.pömpelRubber);
+  // Lathes are built about +Y; turn it to point back down -X, so the open mouth
+  // faces the way the thing is thrown and the shaft runs out of its closed end.
+  cup.rotation.z = Math.PI / 2;
+  cup.position.x = 0.012;
+  build.add(cup);
+
+  // The rolled lip, which is the detail that stops the mouth reading as a hole.
+  const lip = new THREE.Mesh(new THREE.TorusGeometry(CUP_R - 0.014, 0.008, 6, 16), MAT.pömpelRubber);
+  lip.rotation.y = Math.PI / 2;
+  lip.position.x = -0.08;
+  build.add(lip);
+
   return collapse(build, { detail: 'high' });
 }
 

@@ -185,17 +185,45 @@ const CSS = `
 
   /* One curve for the whole screen: a plain ease-out, no overshoot. */
   --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+
+  /*
+   * And two speeds on it, because a screen does two different things.
+   *
+   * **Arriving** is choreography. The rail slides in, the deck follows it, the
+   * sheet rises: nobody is waiting on those, they happen once, and the whole
+   * point of them is to be watched. Those keep their 300-500 ms.
+   *
+   * **Reacting** is not choreography, it is an answer. Hovering a driver,
+   * walking the roster with the arrows, pressing the start bar — the player has
+   * done something and is waiting to find out whether it registered, and every
+   * millisecond before the screen says yes is a millisecond they spend
+   * wondering if they missed.
+   *
+   * The two were the same number here, and that number was 200-260 ms — chosen
+   * for the first job and quietly applied to the second. It is a long way past
+   * the ~100 ms where a response stops reading as *caused by you* and starts
+   * reading as the interface catching up, which is exactly the complaint: not
+   * that the menu is slow, but that it is behind.
+   *
+   * 90 ms is roughly five frames at 60. Fast enough to feel like the screen was
+   * already there, slow enough to still be a transition rather than a jump.
+   */
+  --react: 90ms;
   /*
    * Out faster than in, which is the oldest rule in interface animation and the
    * one most often broken: arriving is an event and wants time, leaving is an
-   * interruption and wants to be gone. 300 in, 170 out — and the way out is the
-   * frame the countdown starts on, so anything slower is a menu the player is
-   * already racing behind.
+   * interruption and wants to be gone.
+   *
+   * 200 in, 130 out — down from 300 and 170. The original numbers were set
+   * thinking about the title card, which opens once and is worth watching. The
+   * same fade is on the pause menu, which is opened mid-race by somebody who
+   * wants it *now*, and there the entrance is not choreography, it is the wait
+   * before the thing they asked for exists.
    */
-  transition: opacity 300ms var(--ease);
+  transition: opacity 200ms var(--ease);
 }
 #menu.on { opacity: 1; pointer-events: auto; }
-#menu:not(.on) { transition-duration: 170ms; }
+#menu:not(.on) { transition-duration: 130ms; }
 
 /* -- the key art ----------------------------------------------------------- */
 
@@ -633,7 +661,7 @@ const CSS = `
   background: rgba(246, 239, 226, 0.07);
   border: 1px solid rgba(246, 239, 226, 0.16);
   border-radius: calc(var(--r) * 0.5);
-  transition: background 140ms var(--ease), border-color 140ms var(--ease);
+  transition: background var(--react) var(--ease), border-color var(--react) var(--ease);
 }
 #menu .briefing .dial button:hover { background: rgba(246, 239, 226, 0.13); border-color: var(--hot); }
 
@@ -668,7 +696,19 @@ const CSS = `
      artwork's own ratio, so the flag underneath sits where it always did. */
   width: 100%;
   transform: translateY(-12px);
-  transition: transform 460ms var(--ease);
+  /*
+   * The rail's entrance, roughly 40% quicker than it was.
+   *
+   * Brand 460, flag 520 + 60, deck 460 + 120 — which means the rail took 580 ms
+   * to stop moving. Read as a spec that sounds like taste; felt on a pause menu
+   * opened for the third time in a lap, it is over half a second of watching
+   * furniture slide before the row you came for is where it is going to be.
+   *
+   * The stagger survives because the stagger is the idea — brand, then flag,
+   * then deck, top-down, like the screen is being dealt. It is dealt faster:
+   * everything settles by ~350 ms now, and the order is unchanged.
+   */
+  transition: transform 260ms var(--ease);
 }
 #menu.on .brand { transform: none; }
 #menu .brand img {
@@ -693,7 +733,7 @@ const CSS = `
 #menu .flag {
   transform: skewX(var(--lean)) scaleX(0.82);
   transform-origin: left center;
-  transition: transform 520ms var(--ease) 60ms;
+  transition: transform 300ms var(--ease) 40ms;
 }
 #menu.on .flag { transform: skewX(var(--lean)); }
 
@@ -746,7 +786,7 @@ const CSS = `
   flex-direction: column;
   gap: 44px;
   transform: translateY(14px);
-  transition: transform 460ms var(--ease) 120ms;
+  transition: transform 280ms var(--ease) 70ms;
 }
 #menu.on .deck { transform: none; }
 /* Leaving: no stagger, nothing held back. */
@@ -772,7 +812,7 @@ const CSS = `
      edge at the line they actually sit on rather than at the top of the caption. */
   transform: skewX(var(--lean));
   transform-origin: left bottom;
-  transition: color 200ms var(--ease);
+  transition: color var(--react) var(--ease);
 }
 #menu .pick.on .cap { color: var(--hot); }
 
@@ -785,7 +825,7 @@ const CSS = `
  */
 #menu .pick {
   transform: translateY(2px);
-  transition: transform 260ms var(--ease);
+  transition: transform var(--react) var(--ease);
 }
 #menu .pick.on { transform: translateY(0); }
 
@@ -830,10 +870,10 @@ const CSS = `
   cursor: pointer;
   transform: skewX(var(--lean));
   transition:
-    background-color 200ms var(--ease),
-    border-color 200ms var(--ease),
-    transform 220ms var(--ease),
-    box-shadow 220ms var(--ease);
+    background-color var(--react) var(--ease),
+    border-color var(--react) var(--ease),
+    transform var(--react) var(--ease),
+    box-shadow var(--react) var(--ease);
 }
 #menu .pick .tile img {
   display: block;
@@ -845,7 +885,7 @@ const CSS = `
      shouting at once is a sticker album; the greyed ones are the list, and the lit
      one is the answer. */
   filter: grayscale(0.5) brightness(0.86) contrast(0.98);
-  transition: filter 220ms var(--ease);
+  transition: filter var(--react) var(--ease);
 }
 #menu .pick .tile:hover {
   border-color: rgba(246, 239, 226, 0.4);
@@ -950,9 +990,9 @@ const CSS = `
   box-shadow: 0 16px 34px -16px rgba(238, 82, 33, 0.9);
   cursor: pointer;
   transition:
-    box-shadow 260ms var(--ease),
-    background-color 200ms var(--ease),
-    transform 220ms var(--ease);
+    box-shadow var(--react) var(--ease),
+    background-color var(--react) var(--ease),
+    transform var(--react) var(--ease);
 }
 /* The label and the chevron sit level on it; only the bar leans. */
 #menu .start > * { transform: skewX(var(--plumb)); }
@@ -998,9 +1038,9 @@ const CSS = `
   transform: skewX(var(--lean));
   cursor: pointer;
   transition:
-    border-color 220ms var(--ease),
-    background-color 220ms var(--ease),
-    transform 220ms var(--ease);
+    border-color var(--react) var(--ease),
+    background-color var(--react) var(--ease),
+    transform var(--react) var(--ease);
 }
 #menu .chip > * { transform: skewX(var(--plumb)); }
 #menu .chip.on { border-color: var(--hot); background: rgba(20, 14, 8, 0.72); }
@@ -1162,13 +1202,16 @@ export function createMenu(hooks: MenuHooks): Menu {
     <h2 class="hd">Three laps. One mug.</h2>
     <div class="cols">
       <div class="col">
-        <p>The lease ends Friday and the movers come Monday, so this week Level&nbsp;6
-           is not an office — it is a circuit. Reception to the Teeküche, out onto the
-           Parkdeck, down through Ebene&nbsp;5 and back past your own desk.</p>
-        <p>The trophy is the mug from the third kitchen. It says
-           <b>WORLD&rsquo;S OKAYEST EMPLOYEE</b>, and seven people booked the
-           afternoon off to win it.</p>
-        <p class="sting">Drive the whole thing. Nobody gets to drive it again.</p>
+        <p>Facilities re-waxed the floor on Thursday. By Thursday evening there was a
+           time. By Friday morning there was a spreadsheet, and by lunchtime the
+           spreadsheet had a tab called <b>RULES</b>.</p>
+        <p>Rule one: three laps. Rule two: not through the canteen — the sales guy
+           tried it and everyone agreed it did not count. Rule three, added later and
+           in a different colour: the caretaker&rsquo;s trolley is not a shortcut.</p>
+        <p>HR sent an email asking everyone to be mindful of the corridors. There are
+           now seven entrants, one timekeeper, and a mug from the third kitchen that
+           says <b>WORLD&rsquo;S OKAYEST EMPLOYEE</b>.</p>
+        <p class="sting">The floor is still fast. Nobody has told Facilities.</p>
       </div>
 
       <div class="col">
@@ -1559,11 +1602,17 @@ export function createMenu(hooks: MenuHooks): Menu {
         { transform: `skewX(-11deg) translateX(${direction * 7}px)`, opacity: 0.15 },
         { transform: 'skewX(-11deg) translateX(0)', opacity: 1 },
       ],
-      // 190 rather than 260: held down, the arrow key repeats at about 30 a
-      // second on a stock keyboard, and any transition longer than the repeat
-      // interval means the name never finishes arriving before it changes again —
-      // which reads as a smear rather than as a list being walked.
-      { duration: 190, easing: 'cubic-bezier(0.22, 0.61, 0.36, 1)' },
+      /*
+       * 120, down from 190 — and the original note had the right reason and the
+       * wrong number. Held down, the arrow key repeats at about 30 a second, so
+       * anything longer than ~33 ms is already being interrupted; 190 was not a
+       * transition being outrun, it was five of them stacked on top of each
+       * other, which is the smear it was trying to avoid. Shorter cannot fix
+       * that outright, but it gets each change most of the way home before the
+       * next one lands, and single presses — which is how the roster is actually
+       * walked — now land the moment the key does.
+       */
+      { duration: 120, easing: 'cubic-bezier(0.22, 0.61, 0.36, 1)' },
     );
   }
 
@@ -1619,7 +1668,11 @@ export function createMenu(hooks: MenuHooks): Menu {
         { transform: `skewX(-11deg) translateY(-3px) scale(1.24) rotate(${direction * -2}deg)` },
         { transform: 'skewX(-11deg) translateY(-3px) scale(1.06)' },
       ],
-      { duration: 260, easing: 'cubic-bezier(0.34, 1.5, 0.64, 1)' },
+      // The one thing on this screen still allowed an overshoot, and now the only
+      // thing on it longer than `--react`: a pop is a flourish on a change that
+      // has *already* been confirmed by the border and the fill, so it is not
+      // what anybody is waiting for. 180 keeps the bounce readable.
+      { duration: 180, easing: 'cubic-bezier(0.34, 1.5, 0.64, 1)' },
     );
   }
 

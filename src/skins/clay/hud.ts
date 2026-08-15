@@ -86,40 +86,45 @@ const CSS = `
 
 /* -- lap ------------------------------------------------------------------- */
 
-#hud .lap .line { display: flex; align-items: baseline; gap: 7px; }
-#hud .lap .word { font-size: 14px; color: var(--paper-2); }
-#hud .lap .now { font-size: 34px; line-height: 0.9; }
-#hud .lap .of { font-size: 16px; color: var(--paper-2); }
+/*
+ * One instrument, two cells, read in a single glance across.
+ *
+ * A rule between them rather than a gap alone: two numbers side by side with
+ * only air in between read as one four-digit number for the fraction of a second
+ * it takes to separate them, and that fraction is the whole budget this thing
+ * has. The rule is the cheapest possible full stop.
+ */
+#hud .lap { display: flex; align-items: stretch; gap: 18px; }
+#hud .lap .cell + .cell {
+  padding-left: 18px;
+  border-left: 1px solid rgba(246, 239, 226, 0.18);
+}
+#hud .lap .cap {
+  display: block;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--paper-3);
+  margin-bottom: 3px;
+}
+/* Baseline, so the big numeral and its total sit on one line however they wrap. */
+#hud .lap .read { display: flex; align-items: baseline; gap: 4px; }
+#hud .lap .now,
+#hud .lap .p {
+  font-size: 36px;
+  line-height: 0.86;
+  letter-spacing: -0.02em;
+  font-variation-settings: 'opsz' 96;
+}
+#hud .lap .of { font-size: 15px; color: var(--paper-3); }
 
 /*
- * -- where you are in the field --------------------------------------------
- *
- * Under the lap, in the same block, because they are the same question asked two
- * ways: how far through the race, and how it is going. Set at the lap number's own
- * size — position is not secondary information in a race, it *is* the score, and
- * the first pass at caption size read as a footnote.
- *
  * Amber when you are leading and paper otherwise: one colour change, at the one
- * threshold anybody cares about.
+ * threshold anybody cares about. It is on the numeral alone — colouring the
+ * caption as well doubles the signal and halves how quickly it is seen.
  */
-#hud .place { display: flex; align-items: baseline; gap: 6px; margin-top: 7px; }
-#hud .place .p { font-size: 30px; line-height: 0.9; }
-#hud .place.lead .p { color: var(--amber); }
-#hud .place .of { font-size: 15px; color: var(--paper-2); }
-#hud .place .word { font-size: 13px; color: var(--paper-3); letter-spacing: 0.14em; text-transform: uppercase; }
+#hud .lap .place.lead .p { color: var(--amber); }
 
-/* One dash per gate, filled as it is taken. Dashes rather than dots because they sit
-   on the same baseline logic as the type above them and read as a progress bar
-   without being one. */
-#hud .gates { display: flex; gap: 4px; margin-top: 10px; }
-#hud .gates i {
-  width: 13px;
-  height: 3px;
-  border-radius: 2px;
-  background: var(--paper-3);
-  transition: background-color 140ms linear, transform 240ms var(--pop);
-}
-#hud .gates i.done { background: var(--amber); transform: scaleY(1.6); }
 
 /* -- clock ----------------------------------------------------------------- */
 
@@ -507,20 +512,40 @@ export function createClayHud(): ClayHud {
   root.classList.add('away');
 
   // -- lap -------------------------------------------------------------------
+  /*
+   * Two readings, side by side, built the same way.
+   *
+   * They used to be stacked: "Lap" and its number on one line, "Pos" and its
+   * number under it, at two different sizes with the labels inline. That put the
+   * two numbers a whole line apart vertically, which is the one axis a glance
+   * mid-corner cannot spare — and set them at 34 and 30 px with different
+   * captions, so they read as a heading with a footnote rather than as a pair.
+   *
+   * They are a pair. Same question asked twice: how far through, and how it is
+   * going. So they are one instrument with two cells, captions above at one
+   * size, numerals below at one size, on a shared baseline with a rule between
+   * them — which is the same arrangement the result card uses for the standings
+   * and the splits, and for the same reason.
+   *
+   * The row of checkpoint pips that sat between them is gone with the
+   * checkpoints: it was a progress bar for a rule that no longer exists.
+   */
+  const cell = (caption: string, value: HTMLElement, of: HTMLElement, extra = ''): HTMLElement => {
+    const box = el('div', `cell${extra ? ` ${extra}` : ''}`);
+    const read = el('div', 'read');
+    read.append(value, of);
+    box.append(el('span', 'cap ui', caption), read);
+    return box;
+  };
+
   const lapValue = el('b', 'now num', '1');
   const lapOf = el('i', 'of num');
-  const line = el('div', 'line');
-  line.append(el('span', 'word ui', 'Lap'), lapValue, lapOf);
-  const gateMarks = GATES.slice(1).map(() => el('i'));
-  const gates = el('div', 'gates');
-  gates.append(...gateMarks);
   const placeValue = el('b', 'p num', '1');
   const placeOf = el('i', 'of num');
-  const place = el('div', 'place');
-  place.append(el('span', 'word ui', 'Pos'), placeValue, placeOf);
+  const place = cell('Pos', placeValue, placeOf, 'place');
 
   const lap = el('div', 'lap float');
-  lap.append(line, gates, place);
+  lap.append(cell('Lap', lapValue, lapOf), place);
 
   const tl = el('div', 'zone tl');
   tl.append(lap);
@@ -597,7 +622,7 @@ export function createClayHud(): ClayHud {
 
   // ---------------------------------------------------------------------------
 
-  const last = { lap: -1, gate: -1, wrong: false, phase: '', countText: '', marks: -1, place: -1 };
+  const last = { lap: -1, gate: -1, wrong: false, phase: '', countText: '', place: -1 };
 
   /** Write the air clock only when it changed. It is written every frame. */
   function airTime_(text: string): void {
@@ -820,12 +845,6 @@ export function createClayHud(): ClayHud {
         placeValue.textContent = String(position);
         placeOf.textContent = `/${field}`;
         place.classList.toggle('lead', position === 1);
-      }
-
-      const lit = race.gate === 0 ? gateMarks.length : race.gate - 1;
-      if (lit !== last.marks) {
-        last.marks = lit;
-        gateMarks.forEach((m, i) => m.classList.toggle('done', i < lit));
       }
 
       // -- clock -------------------------------------------------------------

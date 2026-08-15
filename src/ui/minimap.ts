@@ -184,8 +184,18 @@ export function createMinimap(): Minimap {
   // the confusion a per-level sheet exists to remove.
   const parkhaus = { x0: PARKHAUS.x0, z0: PARKHAUS.z0, x1: PARKHAUS.x1, z1: PARKHAUS.z1 };
   const sheets = [
-    buildSheet('Level 6', LEVELS.floor, upper, true, whole),
-    buildSheet('Level 5', LEVELS.garage, lower, false, parkhaus),
+    /*
+     * Named for what the room is, not for what floor it is on.
+     *
+     * These read "Level 6" and "Level 5", which is the number on the lift button
+     * and tells a driver nothing: mid-lap, glancing at a 90 mm plan, the only
+     * question is whether the sheet in front of them is the one they are on, and
+     * "am I in the office or the car park" answers that instantly where a floor
+     * number needs translating first. The building's own storey numbers still
+     * live in `metrics.ts`, which is where a dimension belongs.
+     */
+    buildSheet('Office', LEVELS.floor, upper, true, whole),
+    buildSheet('Car park', LEVELS.garage, lower, false, parkhaus),
   ];
 
   const element = document.createElement('div');

@@ -65,7 +65,10 @@ export const ITEMS: Record<ItemKind, { label: string; short: string; colour: num
   microwave: { label: 'Fish in the Microwave', short: 'Microwave', colour: 0x8fa6b4 },
   training: { label: 'Mandatory Training', short: 'Training', colour: 0xd8452f },
   puddle: { label: 'Coffee Spill', short: 'Coffee', colour: 0x6b4423 },
-  huddle: { label: '“Quick Sync?”', short: 'Quick Sync', colour: 0x3f8fd0 },
+  // The one item that is simply a thing you hit somebody with. Every other entry
+  // on this list is an office indignity weaponised; this is a plunger out of the
+  // caretaker's cupboard, thrown at a colleague, and it needs no further theory.
+  huddle: { label: 'Der Pömpel', short: 'Pömpel', colour: 0x8e1b16 },
 };
 
 /**
