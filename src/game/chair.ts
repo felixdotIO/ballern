@@ -353,6 +353,16 @@ export type Telemetry = {
   airborne: boolean;
   /** Seconds since the castors left the floor, 0 on the ground. */
   air: number;
+  /**
+   * A flip is under way right now — committed, and not yet round.
+   *
+   * Separate from `airborne` because they are different questions and only one of
+   * them is worth interrupting the game for. Every kerb on the lap makes a chair
+   * airborne for a tenth of a second; a flip is a thing the player asked for and
+   * can still fail. `skins/clay/main.ts` is what reads it, and what it does with
+   * it is slow time down — see the note on SLOWMO there.
+   */
+  flipping: boolean;
 };
 
 /**
@@ -452,6 +462,17 @@ export type Chair = {
   /** Seconds of spin-out left. Zero when it is being driven. */
   stunned(): number;
   /**
+   * End a spin-out now, whatever was left of it.
+   *
+   * The one thing `stun` cannot express, because `stun` takes the longer of the
+   * two on purpose — which is right for two hits landing together and wrong for
+   * the case this exists for: the training module, where answering the question
+   * correctly is supposed to buy back the rest of the stall. A player who has
+   * earned their way out has to actually get out, and `stun(0)` under a `max` is
+   * a no-op that looks like a bug in the answer rather than in the call.
+   */
+  release(): void;
+  /**
    * Straight speed along the facing, m/s, with the speed ceiling lifted by the
    * same amount for `hold` seconds.
    *
@@ -520,7 +541,7 @@ export function createChair(
   let yaw = spawn.yaw;
   let charge = 0;
   let boosting = false;
-  const telemetry: Telemetry = { along: 0, lateralRight: 0, charge: 0, impact: 0, airborne: false, air: 0 };
+  const telemetry: Telemetry = { along: 0, lateralRight: 0, charge: 0, impact: 0, airborne: false, air: 0, flipping: false };
 
   /** The jump in progress, and the one waiting to be reported. */
   let air = 0;
@@ -723,6 +744,7 @@ export function createChair(
       telemetry.lateralRight = lateral.dot(right);
       telemetry.charge = charge;
       telemetry.airborne = true;
+      telemetry.flipping = flipping !== 0;
       telemetry.air = air;
 
       body.setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) }, true);
@@ -785,6 +807,7 @@ export function createChair(
       // castor touched.
       pitch = level;
       telemetry.airborne = false;
+      telemetry.flipping = false;
       telemetry.air = 0;
     }
 
@@ -996,6 +1019,9 @@ export function createChair(
     stunned() {
       return Math.max(0, stunned);
     },
+    release() {
+      stunned = 0;
+    },
     push(speed, hold) {
       pending += speed;
       boostBy = Math.max(boostFor > 0 ? boostBy : 0, speed);
@@ -1031,6 +1057,7 @@ export function createChair(
       flips = 0;
       landed = null;
       telemetry.airborne = false;
+      telemetry.flipping = false;
       telemetry.air = 0;
       // Nor is it spinning out of something that happened in the last race, or
       // still carrying a boost it was handed before the grid was cleared.

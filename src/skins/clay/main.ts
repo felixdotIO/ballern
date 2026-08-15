@@ -90,7 +90,7 @@ import { createProxies, type Proxies } from '../../net/proxy';
 import { POSE_HZ } from '../../net/protocol';
 import { createProjectiles, type ItemArt, type ItemEffects } from '../../game/projectiles';
 import { createPinatas } from './pinatas';
-import { createItemHud } from './itemHud';
+import { WRONG_ANSWER_PENALTY, createItemHud } from './itemHud';
 import { createRush } from './rush';
 import {
   binder,
@@ -611,6 +611,40 @@ const rush = createRush();
  */
 let boostThisFrame = 0;
 let impactThisFrame = 0;
+
+/**
+ * How far time slows while a flip is going round, and how fast it gets there.
+ *
+ * See the long note at the call site in `frame` for why the clock is the thing
+ * that gives rather than the flip rate. These are the three numbers that shape
+ * it, and the only one with much taste in it is the first.
+ *
+ * A third rather than a half, because half of 0.29 s is still 0.15 and the whole
+ * problem is that a flip is over before it registers. A third puts the turn at
+ * 0.85 s of screen time, which is about where a rotation stops being a pop and
+ * starts being a movement — and it is short of the point where the game feels
+ * like it is waiting for you, which slower settings all did.
+ *
+ * `enter` and `exit` are how long the ramp takes in each direction, in seconds,
+ * and they are wildly different on purpose.
+ *
+ * A rate rather than the exponential ease everything else in this file uses, and
+ * that is a correction rather than a preference. The first cut eased with the
+ * usual `1 - pow(k, dt)` and measured 0.56 s of flip against the 0.85 it was
+ * designed for, because an exponential spends its first several frames barely
+ * moving — and the whole event is twenty-five frames long. There is nothing to
+ * ease *into* here: a flip is committed on one frame and the slow needs to be
+ * there by the next few, not asymptotically approaching while the trick happens.
+ *
+ * 60 ms in, because that is about two frames and reads as a cut rather than a
+ * slide — which is what it should read as, since the flip itself is a discrete
+ * decision. 340 ms out, because the landing is the half worth savouring and
+ * snapping back to full speed on touchdown reads as a dropped frame.
+ */
+const SLOWMO = { scale: 0.34, enter: 0.06, exit: 0.34 } as const;
+
+/** Where the clock is now, between `SLOWMO.scale` and 1. */
+let timeScale = 1;
 
 /**
  * Not the seeded generator every builder in this project uses.
@@ -1240,6 +1274,33 @@ let playerName = '';
  * spend whenever you like. It is the same gesture every game of this kind uses, and
  * it is worth having because the field throws back.
  */
+/**
+ * 1, 2 and 3 answer the training module, and do nothing at all otherwise.
+ *
+ * The card is the only thing in the game that asks the player a question, and it
+ * is up at the one moment they have nothing else to do with their hands — the
+ * chair is spun out, so W and A and D are already inert. That is what makes the
+ * number row safe to take: there is no other state in which pressing 2 means
+ * anything, and `answer` itself returns null unless a card is actually up.
+ *
+ * Consequences are applied here rather than inside the overlay because the chair
+ * is not the overlay's to touch. A correct answer buys back whatever is left of
+ * the spin-out; a wrong one adds the same constant the card just added to its own
+ * bar, which is the only way the two stay agreed — see `WRONG_ANSWER_PENALTY`.
+ */
+function answerModule(code: string): void {
+  const index = code.startsWith('Digit')
+    ? Number(code.slice(5)) - 1
+    : code.startsWith('Numpad')
+      ? Number(code.slice(6)) - 1
+      : NaN;
+  if (!Number.isInteger(index)) return;
+
+  const verdict = itemHud.answer(index);
+  if (verdict === 'correct') chair.release();
+  else if (verdict === 'wrong') chair.stun(chair.stunned() + WRONG_ANSWER_PENALTY);
+}
+
 addEventListener('keydown', (e) => {
   if (BLOCKED.has(e.code)) e.preventDefault();
   if (e.code === 'KeyR') restart();
@@ -1249,6 +1310,7 @@ addEventListener('keydown', (e) => {
   if (!e.repeat && race.live && !menu.open) {
     if (e.code === 'KeyE') itemPlay.trail(localSeat, true);
     if (e.code === 'KeyQ') itemPlay.use(localSeat, true);
+    answerModule(e.code);
   }
   keys.add(e.code);
 });
@@ -2428,7 +2490,11 @@ function pump(now: number): void {
 function frame(): void {
   applySize(settling > 0);
   if (settling > 0) settling--;
-  const dt = Math.min(clock.getDelta(), 0.05);
+  // `let`, because a flip slows it down before the simulation sees it. Everything
+  // above the `tick` call — the resolution controller, the menu, the HUD — keeps
+  // using the real one, which is what it wants: an interface easing at a third
+  // speed is an interface that feels broken, however good the reason.
+  let dt = Math.min(clock.getDelta(), 0.05);
 
   /*
    * Whether the world is on the character select — which is not the same question as
@@ -2542,6 +2608,51 @@ function frame(): void {
       chair.sync();
       updateCamera(0, true);
     }
+
+    /*
+     * And the world slows down while a flip is going round.
+     *
+     * ---- why this is a fix and not a flourish --------------------------------
+     *
+     * Measured on the open-plan kicker at 32 km/h: the jump is **0.46 s** of air,
+     * and a flip at `flipRate` is a whole turn in **0.29 s**. At sixty frames a
+     * second that is seventeen frames for a complete 360°, inside a flight that
+     * lasts about twenty-eight. The trick was not badly animated — it was
+     * *invisible*. It read as the chair popping to a new angle, which is exactly
+     * what a rotation you cannot resolve looks like, and there was no interval
+     * anywhere in it long enough to decide anything.
+     *
+     * The tempting fix is to slow the flip down. That one is a trap: every number
+     * in `chair.ts` around the trick — the rate, the grace, the payout, the gate
+     * that refuses a flip there is no room for — is set against the air this
+     * building actually gives, and a slower turn stops fitting inside it. The
+     * comment above `flipRate` is the record of that being got wrong once already.
+     *
+     * So the simulation keeps its 0.46 s and the *clock* is what gives. At 0.34×
+     * the same flight takes about 1.4 s of screen time and the turn takes 0.85,
+     * which is a flip you can watch and, more to the point, one you are inside
+     * long enough to feel. Nothing about the physics, the payout or the landing
+     * window changes, because none of them can tell the difference.
+     *
+     * Only while a flip is actually under way — `telemetry.flipping`, not
+     * `airborne`. Every kerb on this lap puts a castor in the air for a tenth of
+     * a second and a game that lurches into slow motion each time one does is a
+     * game with a stutter, not a trick system.
+     *
+     * And never in a room. Four other people are still driving on the room's own
+     * clock; a client that quietly runs its own race at a third speed arrives back
+     * seconds behind one that never waited. The same argument the pause already
+     * makes in `staged` above, and the same answer.
+     */
+    const wanted = !online() && chair.telemetry().flipping ? SLOWMO.scale : 1;
+    // Rate-limited rather than eased, and asymmetrically — see the note on
+    // SLOWMO. `dt` here is still the real one, so the ramp takes the same
+    // wall-clock time however slow the world currently is.
+    const seconds = wanted < timeScale ? SLOWMO.enter : SLOWMO.exit;
+    const step = ((1 - SLOWMO.scale) / seconds) * dt;
+    timeScale += Math.max(-step, Math.min(step, wanted - timeScale));
+
+    dt *= timeScale;
     tick(dt);
 
     // The rivals' own animation. Synthetic telemetry: they have a speed and
@@ -2555,7 +2666,7 @@ function frame(): void {
       if (!state) continue;
       rig.driver.update(
         dt,
-        { along: state.speed, lateralRight: 0, charge: 0, impact: 0, airborne: false, air: 0 },
+        { along: state.speed, lateralRight: 0, charge: 0, impact: 0, airborne: false, air: 0, flipping: false },
         { throttle: state.speed > 0.2 ? 1 : 0, steer: 0, drift: false },
       );
       rig.rig?.apply(rig.driver.pose);
@@ -2701,6 +2812,7 @@ if (import.meta.env.DEV) {
       crowd,
       projectiles,
       itemPlay,
+      itemHud,
       rush,
       seats,
       /*

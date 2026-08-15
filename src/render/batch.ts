@@ -27,8 +27,50 @@ import { bevelBox } from './geometry';
 const KEEP = ['position', 'normal', 'uv'] as const;
 
 /**
+ * Put a quantized attribute back into metres, as plain floats.
+ *
+ * ---- the two-metre chairs ---------------------------------------------------
+ *
+ * The kit is welded, quantized and meshopt-packed on the way out of Blender (see
+ * `tools/compress-kit.mjs`), so a position off disk is a normalized 16-bit
+ * integer: the *number* in the array is a fraction of the type's range, and only
+ * `normalized: true` on the attribute says so. three honours that on the way in
+ * and on the way out — `getX` denormalizes, `setXYZ` re-normalizes — which is
+ * correct for reading and fatal for transforming.
+ *
+ * `applyMatrix4` is a read, a multiply and a write back into the same array. Any
+ * coordinate that leaves the multiply outside the type's own range — which for a
+ * signed normalized attribute is ±1, and a chair is 1.03 m tall — is clamped on
+ * the way back in. That is the whole bug: a backrest spanning y 0.41→1.03
+ * arrived spanning −1.00→+1.00, two metres tall and half of it under the floor,
+ * and the bench desks went the same way. Nothing threw, because nothing was
+ * wrong: an attribute cannot hold a number outside the range it declares.
+ *
+ * So anything quantized is widened to Float32 *before* it is transformed, and
+ * the flag comes off with it. It costs four bytes a component in a buffer that
+ * is about to be merged into a mesh that lives for the session, and it is the
+ * difference between a merge that can carry the kit and one that cannot.
+ *
+ * Read through the accessors rather than off `array` so this is also correct for
+ * an interleaved attribute, which is what meshopt decodes to when the exporter
+ * packs a stride.
+ */
+function dequantize(attribute: THREE.BufferAttribute | THREE.InterleavedBufferAttribute): THREE.BufferAttribute {
+  const { count, itemSize } = attribute;
+  const wide = new Float32Array(count * itemSize);
+  for (let i = 0; i < count; i++) {
+    const at = i * itemSize;
+    wide[at] = attribute.getX(i);
+    if (itemSize > 1) wide[at + 1] = attribute.getY(i);
+    if (itemSize > 2) wide[at + 2] = attribute.getZ(i);
+    if (itemSize > 3) wide[at + 3] = attribute.getW(i);
+  }
+  return new THREE.BufferAttribute(wide, itemSize);
+}
+
+/**
  * Bring a geometry into the one shape everything can be merged in: non-indexed,
- * and carrying exactly the three attributes above.
+ * carrying exactly the three attributes above, and in metres.
  *
  * mergeGeometries refuses to mix indexed and non-indexed input, and silently
  * produces garbage if the attribute sets differ — three's rounded box is
@@ -37,6 +79,15 @@ const KEEP = ['position', 'normal', 'uv'] as const;
  */
 function normalize(source: THREE.BufferGeometry): THREE.BufferGeometry {
   const geo = source.index ? source.toNonIndexed() : source.clone();
+  /*
+   * Before anything else touches it, and in particular before the caller's
+   * `applyMatrix4` and before `computeVertexNormals` below — a normal computed
+   * from clamped positions is a normal off the wrong shape.
+   */
+  for (const name of KEEP) {
+    const attribute = geo.getAttribute(name);
+    if (attribute?.normalized) geo.setAttribute(name, dequantize(attribute));
+  }
   if (!geo.getAttribute('uv')) {
     const count = geo.getAttribute('position').count;
     geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(count * 2), 2));
@@ -208,43 +259,32 @@ export function collapse(root: THREE.Object3D, { detail = 'keep' }: CollapseOpti
     };
 
     if (node !== root) {
-      // An LOD being flattened is not lifted out and not descended into wholly:
-      // only its first level is, and the rest never reach the merge. Descending
-      // into all of them would bake every level on top of itself.
       /*
-       * An LOD keeps its nearest level and loses the rest — as a whole object,
-       * not as geometry fed to the merge.
+       * An LOD being flattened is not lifted out and not descended into wholly:
+       * only its first level is, and the rest never reach the merge. Descending
+       * into all of them would bake every level on top of itself.
        *
-       * This used to descend into the level and let its meshes be normalized,
-       * transformed and merged like anything else, and the geometry came out
-       * wrong: a task chair whose backrest spans y 0.41→1.03 arrived spanning
-       * −1.00→+1.00. Two metres tall, half of it under the floor. Measured on a
-       * single chair, three runs, identical every time — and `detail: 'keep'` on
-       * the same input is correct to the millimetre, which is what localised it.
+       * ---- why this was briefly not the case ---------------------------------
        *
-       * The kit is exported with meshopt compression and quantized attributes,
-       * so a level's positions are not in metres until its own matrix is applied;
-       * pulling that geometry out of its node and re-transforming it by hand is
-       * where the metres were lost. That is the whole reason this path exists as
-       * an optimisation, and it is not worth a floor full of two-metre chairs.
+       * This path was replaced for a while by one that lifted the near level out
+       * intact inside a holder, because the merge was producing two-metre chairs
+       * sunk a metre into the floor. That was real, and it was not this line: it
+       * was `applyMatrix4` clamping a quantized attribute, which `normalize` now
+       * widens to Float32 before anybody transforms it — see the note there.
        *
-       * So the level is lifted out intact, inside a holder carrying its transform
-       * relative to the collapse root. The saving that mattered is still taken —
-       * the other levels are dropped, so the low-poly duplicate never reaches the
-       * scene — and the geometry is the geometry Blender exported.
+       * Lifting out was also the wrong place to fix it, because it left the room
+       * paying both bills at once. Every kit prop came back as its own draws —
+       * the open plan went from 131 meshes to 427, measured — which is the cost
+       * `'keep'` pays and this whole function exists to avoid. But it kept
+       * `'high'`'s side of the bargain too: the far level is still discarded, and
+       * an LOD only ever renders one level, so throwing it away never saved a
+       * draw call. It only removed the cheap version. The draw calls of `'keep'`
+       * with the triangles of `'high'`, which is the one combination neither
+       * setting is worth having.
        */
       if (it.isLOD && detail === 'high') {
         const nearest = (node as THREE.LOD).levels[0]?.object;
-        if (nearest) {
-          const holder = new THREE.Group();
-          relative.multiplyMatrices(inverse, node.matrixWorld);
-          // Onto the holder rather than onto the level itself: the level carries
-          // its own offset inside the asset, and writing over that would move the
-          // model relative to the origin the kit authored it around.
-          relative.decompose(holder.position, holder.quaternion, holder.scale);
-          holder.add(nearest);
-          kept.push(holder);
-        }
+        if (nearest) visit(nearest);
         return;
       }
 

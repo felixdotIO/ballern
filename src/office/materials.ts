@@ -17,6 +17,7 @@ import {
   COLD_FLUORESCENT,
   FLUORESCENT,
   INDICATOR,
+  RECEPTION,
   SODIUM,
   SURFACES,
   TINTS,
@@ -105,6 +106,46 @@ export const MAT = {
   wall: standard(SURFACES.wall),
   melamine: standard(SURFACES.melamine),
   metal: standard(SURFACES.metal),
+  /**
+   * Cast iron, for the things lying in a floor rather than fixed to a wall.
+   *
+   * `darkMetal` is a graphite powder coat and it is a *cool* grey — right on a
+   * balustrade or a door, and wrong the moment it is laid flat in warm concrete
+   * with the sun across it, where the hue difference stops reading as metal and
+   * starts reading as a painted blue line. That is exactly what the deck's
+   * drainage channel had become: a 33 m blue stripe straight down the racing
+   * line, which is the second time this project has had to answer for the same
+   * material lying on the same kind of floor. See the note in `garage.ts`.
+   *
+   * A drain grating is unpainted cast iron. It rusts, it fills with grit, and it
+   * ends up the colour of the concrete it sits in but darker — which is what
+   * stops it competing with the paint that is *meant* to be read.
+   *
+   * ---- what this colour can and cannot control ----------------------------
+   *
+   * Almost none of it reaches the screen, and the part that does is the *hue*.
+   *
+   * `main.ts` runs `repaintBuilding()` — which paints by name — and then
+   * `repaintObject(scene)` over the whole graph, which paints *without* a name
+   * and so puts every material it finds through the generic regrade a second
+   * time, overwriting the named pass. That is why `darkMetal` is specified as
+   * 0x2f3945 in the clay palette and arrives on screen as 0x4b6c8d, and why
+   * naming this material there did nothing at all.
+   *
+   * The regrade works in linear space and floors lightness at `0.14 + l × 0.66`,
+   * so every dark input converges on the same mid value — authoring this at
+   * 0x201b16 made it *lighter* than 0x4a423a had been, which is the opposite of
+   * the intent and worth recording so nobody tries it a third time. Value is not
+   * available here.
+   *
+   * Hue and saturation are. `s' = s × 1.5 + 0.05` means a near-neutral stays
+   * near-neutral and anything with a cast gets that cast amplified — which is
+   * the whole story of how a graphite powder coat became a blue stripe. So this
+   * is authored as a *warm near-neutral*: the boost leaves it a dirty grey with
+   * a trace of rust in it, which at this lightness is what a grating full of
+   * five years of grit actually looks like.
+   */
+  castIron: standard({ referent: 'cast-iron channel grating, unpainted', color: 0x565250, roughness: 0.85, metalness: 0.1 }),
 
   // -- tints and variants ----------------------------------------------------
   darkMetal: standard({ referent: 'RAL 7024 graphite powder coat', color: 0x54565a, roughness: 0.5, metalness: 0.45 }),
@@ -168,6 +209,51 @@ export const MAT = {
   // -- light emitters --------------------------------------------------------
   /** Prismatic diffuser behind the louvres, lit. */
   lamp: emissive(TINTS.ceilingTile, FLUORESCENT.color, 1.5),
+  /**
+   * The hall's lamps: its downlight cans and the slot of its Lichtvoute.
+   *
+   * Warm rather than green-white, for the reason `RECEPTION` exists, and hotter
+   * than the tube because of what it is standing next to. The cove is a 100 mm
+   * slot seen edge-on from a chair — it is a *line* in the frame, and a line has
+   * to be well above its background to read as a light source rather than as a
+   * shadow gap. At the tube's 1.5 it was neither.
+   */
+  receptionLamp: emissive(TINTS.ceilingTile, RECEPTION.color, 2.4),
+  /**
+   * The coffer the cove washes, which is a material rather than a light.
+   *
+   * A Lichtvoute works by throwing a gradient up a lid, and the gradient is the
+   * whole effect — it is why anybody pays for one. There is no bounce light in
+   * this renderer, so an emissive slot glows and lights nothing, and the lid
+   * above it stayed exactly as dark as the lid anywhere else: a dead brown field
+   * across the top of every shot of the room, with a bright line under it that
+   * plainly was not doing anything.
+   *
+   * Paying for it in lights was the obvious fix and the wrong one. A real source
+   * up there is a fourth competitor for the one area-light slot the pool has —
+   * see SLOTS in render/lights.ts — so it would take the slot off the glazing
+   * half the time and off nothing useful the rest. This is the honest cheat: the
+   * plaster itself carries a low warm emission, so the coffer sits a stop above
+   * the rim it is lifted out of and reads as washed. It costs nothing per frame
+   * and it is the one surface in the building allowed to lie about why it is
+   * bright.
+   */
+  coveWash: emissive(SURFACES.wall, RECEPTION.color, 0.42),
+  /**
+   * And the flat rim the coffer is lifted out of, at a third of it.
+   *
+   * The coffer alone was not enough, and the reason is where you stand. The
+   * rim is a 3 m band running round the whole room, so it is what fills the top
+   * of the frame everywhere except the exact middle — by a column, along the
+   * lobby wall, coming in off the entrance mat. Wash only the coffer and the
+   * lid is lit in the one place nobody drives and dead everywhere they do.
+   *
+   * A third rather than the same, because a Lichtvoute throws most of its light
+   * on the lid directly above it and only spill on the level below. Equal
+   * emission on both would read as a ceiling that is uniformly glowing, which is
+   * a lightbox, not a cove — the step between the two levels is the effect.
+   */
+  coveWashLow: emissive(SURFACES.wall, RECEPTION.color, 0.15),
   /** Bare 6500 K tube in an open batten, in the EDV room only. */
   coldLamp: emissive(TINTS.ceilingTile, COLD_FLUORESCENT.color, 1.9),
   /** Sodium mast head on the deck, still warming up. */

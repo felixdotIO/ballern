@@ -27,7 +27,7 @@ import * as THREE from 'three';
 import type { CollisionVolume } from './collision';
 import { DECK, GARAGE } from './metrics';
 import { MAT } from './materials';
-import { DECK_STAIR, GARAGE_COLUMNS, LEVELS, PARKHAUS } from './plan';
+import { DECK_STAIR, GARAGE_COLUMNS, GARAGE_OPENINGS, LEVELS, PARKHAUS } from './plan';
 import { SODIUM } from './palette';
 import { range, type Rng } from './rng';
 import type { Sink } from '../render/batch';
@@ -99,12 +99,21 @@ function slab(sink: Sink, out: CollisionVolume[], rng: Rng): void {
   }
   sink.add(panels);
 
-  for (let ix = 1; ix < nx; ix++) {
-    sink.box(MAT.darkMetal, [0.03, 0.008, DEPTH], [PARKHAUS.x0 + ix * pw, BASE + 0.003, cz], { cast: false });
-  }
-  for (let iz = 1; iz < nz; iz++) {
-    sink.box(MAT.darkMetal, [WIDTH, 0.008, 0.03], [cx, BASE + 0.003, PARKHAUS.z0 + iz * pd], { cast: false });
-  }
+  /*
+   * The pour joints are the tone difference and nothing else.
+   *
+   * There were strips of `darkMetal` laid over every joint, 30 mm wide and 7 mm
+   * proud, on the reasoning that a saw-cut in a slab is a visible line. It is —
+   * but not this line. `darkMetal` is a cool blue-grey, the floor either side of
+   * it is warm concrete, and a 12 m run of cool laid across a warm floor under a
+   * light this low does not read as a joint in the slab. It reads as painted
+   * blue lines, on a grid, in a car park that has no bay markings anywhere else.
+   *
+   * The bays above already carry a per-panel tone variation for exactly this —
+   * see the instanced colours — and that is what a pour line actually looks like
+   * from a seat: the edge where one mix stops and the next begins. So the strips
+   * go, and the joint stays as the thing it always was.
+   */
 }
 
 // ---------------------------------------------------------------------------
@@ -409,23 +418,55 @@ function steelDoor(sink: Sink, axis: 'x' | 'z', at: number, u: number, side: -1 
 function backOfHouse(sink: Sink, out: CollisionVolume[]): void {
   // The wall across the front of all three, with the plant room's door, the
   // store's opening and the Waschbox's.
-  blockWall(sink, out, 'garage.wall.front', 'x', 37.5, 5.0, PARKHAUS.x1, [
+  const O = GARAGE_OPENINGS;
+  blockWall(sink, out, 'garage.wall.front', 'x', O.frontZ, 5.0, PARKHAUS.x1, [
     { at: 7.2, width: 1.16, height: 2.24 },
-    { at: 13.0, width: 3.75, height: 2.4 },
-    { at: 19.0, width: 3.0, height: 2.4 },
+    { ...O.store, height: 2.4 },
+    { ...O.wash, height: 2.4 },
   ]);
-  steelDoor(sink, 'x', 37.5, 7.2, -1, true);
+  steelDoor(sink, 'x', O.frontZ, 7.2, -1, true);
 
   // Plant room to store: solid, with the locked door on the store's side that
   // nobody has opened since the last sprinkler test.
-  blockWall(sink, out, 'garage.wall.plant', 'z', 10.0, 37.5, PARKHAUS.z1);
+  blockWall(sink, out, 'garage.wall.plant', 'z', 10.0, O.frontZ, PARKHAUS.z1);
   steelDoor(sink, 'z', 10.0, 40.6, 1, false);
 
   // Store to Waschbox: the hole the lap goes through, at the far corner from the
   // one it came in by.
-  blockWall(sink, out, 'garage.wall.store', 'z', 16.25, 37.5, PARKHAUS.z1, [
-    { at: 40.8, width: 3.0, height: 2.4 },
+  blockWall(sink, out, 'garage.wall.store', 'z', O.divisionX, O.frontZ, PARKHAUS.z1, [
+    { ...O.storeToWash, height: 2.4 },
   ]);
+
+  /**
+   * And the same line carried north, from the front wall to the foot of the
+   * Einfahrt — which is what makes the two rooms above a route rather than a
+   * suggestion.
+   *
+   * The lap is supposed to come down the back lane, drop into the cage store at
+   * x 13.0, cross it corner to corner, pass into the Waschbox at z 40.8 and come
+   * out at x 19.0 pointed at the ramp. It was not supposed to be able to arrive
+   * at the back lane's south end, turn left across six and a half metres of open
+   * slab, and be on the ramp — skipping both rooms, which is most of what Ebene 5
+   * has that the deck above it does not, and taking about two seconds off a lap
+   * for the privilege. Measured on the real colliders: 4.52 m from the lane to
+   * the landing with nothing whatever in the way.
+   *
+   * x = 16.25 because the wall is already there twice over and this is the gap
+   * between them: the ramp's own west flank runs solid from the north end of the
+   * level down to z 30.5, the store/Waschbox division runs from 37.5 south, and
+   * the seven metres between the two was simply never built. So this is less an
+   * addition than the completion of a line — which is also why it needs no
+   * argument architecturally. A Parkhaus does not leave the blind side of a
+   * one-way ramp's landing open to the parking hall; the whole point of a ramp
+   * flank is that nothing joins the lane except at the end you can see.
+   *
+   * From 30.0 rather than 30.5 so it butts into the ramp structure with a little
+   * to spare — a hairline between two static colliders is a seam a chair at
+   * 40 km/h will eventually find. Not past 30.0: north of there the ramp deck is
+   * climbing away from the slab, and a floor-to-soffit wall would stand through
+   * it.
+   */
+  blockWall(sink, out, 'garage.wall.ramp', 'z', O.divisionX, 30.0, O.frontZ);
 }
 
 // ---------------------------------------------------------------------------

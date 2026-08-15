@@ -26,7 +26,7 @@ import { MAT } from './materials';
 import { buildGarage } from './garage';
 import { buildRamps } from './ramps';
 import { CORE, EXTENTS, PARKHAUS, RAMPS, ROOMS, SPAWN, WALLS, HALL_COLUMNS, assertOnGrid, backing, firstBacking, solidRuns, type Room, type RoomKind } from './plan';
-import { COLD_FLUORESCENT, DAYLIGHT, FLUORESCENT, SKYFILL, SUN, SURFACES } from './palette';
+import { COLD_FLUORESCENT, DAYLIGHT, FLUORESCENT, RECEPTION, SKYFILL, SUN, SURFACES } from './palette';
 import { makeRng, seedFrom, type Rng } from './rng';
 import { buildWall } from './walls';
 import { Batch, type Sink } from '../render/batch';
@@ -314,22 +314,40 @@ function roomLights(group: THREE.Group, room: Room, luminaires: readonly THREE.V
   }
 
   /**
-   * The hall gets one soft area source over the whole room as well as its
-   * downlights.
+   * The hall gets one soft area source over the middle of the room as well as
+   * its downlights.
    *
    * Downlights alone give pools and blackness between them, which is what a
    * shop window looks like rather than a lobby. A real reception also has a
    * light cove, daylight off two glazed walls and a pale plastered lid bouncing
    * everything back — none of which this scene can afford to simulate honestly,
-   * so one wide, weak, ceiling-height panel stands in for the lot. It is the
-   * difference between "lit" and "spotlit".
+   * so one wide, weak panel stands in for the lot. It is the difference between
+   * "lit" and "spotlit".
+   *
+   * ---- and why it is now much less of it --------------------------------
+   *
+   * It was the full room less a 3 m margin, at 1.1 lamps, in 4000 K green-white.
+   * Three things wrong and they compounded: an 18 × 10 m emitter is the largest
+   * directionless source in the building, directionless light cannot make a
+   * shadow, and the colour had no warmth in it to make up for the lack of shape.
+   * The result was the flattest room on the floorplate — every surface at the
+   * same value, no modelling on the columns, and the downlights below it
+   * invisible because the floor they were pooling onto was already lit to the
+   * same level by the panel. Milk, and cold milk at that.
+   *
+   * So it comes down to a third of the strength, is pulled in to the coffer's
+   * own footprint rather than the room's, and is warm. Under it the downlights
+   * have somewhere to read against, the columns get a light and a dark side,
+   * and the glazing goes back to being what lights the front of the room —
+   * which is what a lobby with two glazed elevations looks like at six in the
+   * evening.
    */
   if (room.kind === 'hall') {
     const fill = new THREE.RectAreaLight(
-      new THREE.Color(FLUORESCENT.color),
-      FLUORESCENT.intensity * 1.1,
-      room.x1 - room.x0 - 6,
-      room.z1 - room.z0 - 4,
+      new THREE.Color(RECEPTION.color),
+      RECEPTION.intensity * 0.62,
+      room.x1 - room.x0 - 11,
+      room.z1 - room.z0 - 7,
     );
     fill.position.set((room.x0 + room.x1) / 2, room.ceiling - 0.35, (room.z0 + room.z1) / 2);
     fill.lookAt((room.x0 + room.x1) / 2, 0, (room.z0 + room.z1) / 2);
@@ -360,12 +378,20 @@ function roomLights(group: THREE.Group, room: Room, luminaires: readonly THREE.V
        * a pool with a soft edge, and reads brighter at a third of the intensity.
        */
       const lamp = new THREE.SpotLight(
-        new THREE.Color(FLUORESCENT.color),
-        FLUORESCENT.intensity * 16,
+        new THREE.Color(RECEPTION.color),
+        // Up by half over the tube's, because the panel above is down by more
+        // than half and something has to carry the granite. This is the light
+        // the room is now actually lit by, rather than a texture on top of a
+        // wash — and a pool that is a stop and a half over its surround is what
+        // makes a downlight look like a downlight instead of a smudge.
+        RECEPTION.intensity * 27,
         13,
-        // A 49° cone: a downlight, not a followspot.
-        0.85,
-        0.72,
+        // Tighter than the 49° it was. A cone that is nine-tenths penumbra
+        // spread over a 3 m ceiling gives an edge so soft it has no edge, and
+        // the whole point of the change above is that these have to read
+        // individually now. 40°, still mostly penumbra, but with a rim to it.
+        0.7,
+        0.62,
         2,
       );
       lamp.position.copy(at);
