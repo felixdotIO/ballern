@@ -267,20 +267,23 @@ function slab(sink: Sink, out: CollisionVolume[], plates: readonly Plate[], rng:
     }
     sink.add(panels);
 
-    // Saw cuts, on the panel edges and in both directions.
-    for (let ix = 1; ix < nx; ix++) {
-      sink.box(MAT.darkMetal, [0.03, 0.008, D], [plate.x0 + ix * pw, Y.joint, cz], { cast: false });
-    }
-    for (let iz = 1; iz < nz; iz++) {
-      sink.box(MAT.darkMetal, [W, 0.008, 0.03], [cx, Y.joint, plate.z0 + iz * pd], { cast: false });
-    }
-
-    // Fugenband: the full-depth movement joints, which are a different thing
-    // from a saw cut — wider, sealed, and every fifteen metres rather than
-    // every five.
-    for (let z = plate.z0 + DECK.jointSpacing; z < plate.z1 - 1; z += DECK.jointSpacing) {
-      sink.box(MAT.darkMetal, [W, 0.01, 0.07], [cx, Y.joint + 0.001, z], { cast: false });
-    }
+    /*
+     * The saw cuts are the tone difference and nothing else — see the same note,
+     * and the same removal, in `garage.ts`.
+     *
+     * They were 30 mm strips of `darkMetal` over every panel edge in both
+     * directions. A saw cut in a slab is a visible line, but not a *cool* one:
+     * laid across warm concrete at golden hour a graphite strip stops reading as
+     * a joint and starts reading as blue paint, and a deck ruled off in blue at
+     * 5.3 m centres reads as a games court. The per-pour tone above already does
+     * the job, and does it the way a real deck does — the edge where one mix
+     * stops and the next begins.
+     *
+     * The Fugenband went with them for the same reason. A sealed movement joint
+     * is a real and much wider thing than a saw cut, but it is still a dark band
+     * lying in the floor, and three of them across the deck were three more blue
+     * stripes on the one surface this game spends the most time looking at.
+     */
   }
 
   // Nothing else is needed at a slot edge. The 280 mm of structural depth above
@@ -347,11 +350,12 @@ function weathering(sink: Sink, plates: readonly Plate[], rng: Rng): void {
     const geo = new THREE.PlaneGeometry(w, d).rotateX(-Math.PI / 2);
     sink.geo(PATCH, geo, new THREE.Matrix4().setPosition(x0 + w / 2, Y.joint, z0 + d / 2), { cast: false });
     // The cut line round it, which is what makes it read as a repair rather
-    // than as a stain.
-    sink.box(MAT.darkMetal, [w, 0.006, 0.02], [x0 + w / 2, Y.weather, z0], { cast: false });
-    sink.box(MAT.darkMetal, [w, 0.006, 0.02], [x0 + w / 2, Y.weather, z0 + d], { cast: false });
-    sink.box(MAT.darkMetal, [0.02, 0.006, d], [x0, Y.weather, z0 + d / 2], { cast: false });
-    sink.box(MAT.darkMetal, [0.02, 0.006, d], [x0 + w, Y.weather, z0 + d / 2], { cast: false });
+    // than as a stain. Iron rather than powder coat, for the reason everything
+    // else lying in this slab is — see `castIron`.
+    sink.box(MAT.castIron, [w, 0.006, 0.02], [x0 + w / 2, Y.weather, z0], { cast: false });
+    sink.box(MAT.castIron, [w, 0.006, 0.02], [x0 + w / 2, Y.weather, z0 + d], { cast: false });
+    sink.box(MAT.castIron, [0.02, 0.006, d], [x0, Y.weather, z0 + d / 2], { cast: false });
+    sink.box(MAT.castIron, [0.02, 0.006, d], [x0 + w, Y.weather, z0 + d / 2], { cast: false });
   }
 }
 
@@ -637,8 +641,12 @@ export function buildDeck(sink: Sink, group: THREE.Group, rooms: readonly Room[]
   // flat on the surface reads as a painted stripe, and the whole reason it is
   // legible in life is that the concrete falls into it.
   sink.box(MAT.concrete, [0.42, 0.06, 33.0], [8.125, -0.03, 16.5], { cast: false });
+  // Cast iron rather than powder coat: this one stays, because a channel with no
+  // grating over it is a trench, but it is the single longest run of metal in the
+  // game and it lies down the middle of the racing line. In `darkMetal` it was a
+  // 33 m blue stripe under the one camera that never looks away from it.
   for (let z = 0.5; z < 33.0; z += 0.5) {
-    sink.box(MAT.darkMetal, [0.26, 0.02, 0.44], [8.125, Y.joint, z + 0.25], { cast: false });
+    sink.box(MAT.castIron, [0.26, 0.02, 0.44], [8.125, Y.joint, z + 0.25], { cast: false });
   }
   // Kerb either side, standing just proud, which is what you actually see.
   for (const s of [-1, 1] as const) {
@@ -646,7 +654,7 @@ export function buildDeck(sink: Sink, group: THREE.Group, rooms: readonly Room[]
   }
   const gully = new THREE.CylinderGeometry(0.17, 0.17, 0.03, 12);
   for (const [x, z] of [[15.4, 36.0], [33.0, 41.0], [7.0, 40.5]] as const) {
-    sink.geo(MAT.darkMetal, gully, new THREE.Matrix4().setPosition(x, Y.joint, z), { cast: false });
+    sink.geo(MAT.castIron, gully, new THREE.Matrix4().setPosition(x, Y.joint, z), { cast: false });
   }
 
   stairHouse(sink, collision);

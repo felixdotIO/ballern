@@ -238,14 +238,17 @@ function plaster(sink: Sink, room: Room): CeilingResult {
   const cz = (room.z0 + room.z1) / 2;
   const luminaires: THREE.Vector3[] = [];
 
-  // The flat field, at the lower level.
+  // The flat field, at the lower level, carrying the cove's spill. See
+  // `coveWashLow` in materials.ts for why this is a material and not a light.
   const rim = 3.0;
-  sink.box(MAT.wall, [W, 0.05, D], [cx, h - RIM_DROP + 0.025, cz], { cast: false });
+  sink.box(MAT.coveWashLow, [W, 0.05, D], [cx, h - RIM_DROP + 0.025, cz], { cast: false });
 
-  // The coffer: a rectangle lifted out of the middle of it, on the module.
+  // The coffer: a rectangle lifted out of the middle of it, on the module, and
+  // the one lid in the building that carries its own faint emission so the cove
+  // below it has something to have washed. See `coveWash` in materials.ts.
   const coffer = { x0: room.x0 + rim, x1: room.x1 - rim, z0: room.z0 + rim, z1: room.z1 - rim };
   sink.box(
-    MAT.wall,
+    MAT.coveWash,
     [coffer.x1 - coffer.x0, 0.05, coffer.z1 - coffer.z0],
     [(coffer.x0 + coffer.x1) / 2, h + 0.025, (coffer.z0 + coffer.z1) / 2],
     { cast: false },
@@ -270,7 +273,7 @@ function plaster(sink: Sink, room: Room): CeilingResult {
     [[0.1, 0.03, coffer.z1 - coffer.z0 - 0.2], [coffer.x0 + 0.1, h - drop + 0.06, (coffer.z0 + coffer.z1) / 2]],
     [[0.1, 0.03, coffer.z1 - coffer.z0 - 0.2], [coffer.x1 - 0.1, h - drop + 0.06, (coffer.z0 + coffer.z1) / 2]],
   ] as const) {
-    sink.box(MAT.lamp, size as [number, number, number], centre as [number, number, number], { cast: false });
+    sink.box(MAT.receptionLamp, size as [number, number, number], centre as [number, number, number], { cast: false });
   }
 
   // Downlights in the flat rim, on a 1.25 m rhythm because the ceiling is set
@@ -287,7 +290,7 @@ function plaster(sink: Sink, room: Room): CeilingResult {
   }
   for (const [x, z] of ring) {
     at.setPosition(x, y - 0.01, z);
-    sink.geo(MAT.lamp, canGeo, at, { cast: false });
+    sink.geo(MAT.receptionLamp, canGeo, at, { cast: false });
     luminaires.push(new THREE.Vector3(x, y - 0.05, z));
   }
 
