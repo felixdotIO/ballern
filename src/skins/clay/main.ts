@@ -42,7 +42,7 @@ import { GATES, LAPS, ROUTE, SHOWROOM, roomAt } from '../../office/plan';
 import { buildDressing } from '../../office/dressing';
 import { buildTrackMarks } from '../../office/trackmarks';
 import { buildCrowd } from '../../office/crowd';
-import { createChair, DRIFT_TIERS, FLOOR_OFFSET, type Input } from '../../game/chair';
+import { createChair, DRIFT_TIERS, FLOOR_OFFSET, type Input, type Telemetry } from '../../game/chair';
 import { createPhysics } from '../../game/physics';
 import { createDynamics } from '../../game/dynamics';
 import { createDriver } from '../../game/driver';
@@ -372,6 +372,22 @@ useDriver(RIDERS[0]!.key);
  * driver by writing colours into the material instances the asset owns; without a
  * private copy per rival, dressing the Boss would dress the player too.
  */
+/**
+ * Scratch telemetry/input for the rivals' synthetic animation, reused every frame
+ * for every rival rather than built fresh — see the call site in `frame()`. Only
+ * `along` and `throttle` ever change; everything else here is permanently zero.
+ */
+const RIVAL_TELEMETRY: Telemetry = {
+  along: 0,
+  lateralRight: 0,
+  charge: 0,
+  impact: 0,
+  airborne: false,
+  air: 0,
+  tricking: false,
+};
+const RIVAL_INPUT: Input = { throttle: 0, steer: 0, drift: false };
+
 const rivalRigs = Array.from({ length: railSeats.length }, (_, slot) => {
   const rng = makeRng(seedFrom(`rival.slot.${slot}`));
   const chairBody = raceChair(rng).group;
@@ -826,14 +842,14 @@ hud.standings(standings);
 /** Carry where everybody is into the flat list the item rules read. */
 function seatEveryone(): void {
   const me = seats[localSeat]!;
-  const p = chair.body.translation();
+  const p = chair.position();
   me.position.set(p.x, p.y - FLOOR_OFFSET, p.z);
-  // Yaw off the body rather than off `chair.object`, because this runs inside the
-  // fixed step and the mesh is only synced once a frame. The chair writes its
-  // heading into the body's rotation every substep as a pure Y quaternion, so this
-  // is the same number one line earlier.
-  const r = chair.body.rotation();
-  me.yaw = 2 * Math.atan2(r.y, r.w);
+  // Yaw off the chair's own number rather than off `chair.object`, because this
+  // runs inside the fixed step and the mesh is only synced once a frame. It used
+  // to be recovered from the body's rotation quaternion, which chair.ts had just
+  // written from this exact number one line earlier — `yaw()` is the same value
+  // without the round trip through wasm and an atan2 to undo the encoding.
+  me.yaw = chair.yaw();
   me.progress = playerProgress;
   me.stunned = chair.stunned();
   me.finished = race.phase === 'finished';
@@ -856,8 +872,8 @@ function seatEveryone(): void {
     }
   }
 
-  // Taken once. `rivals.all` is a getter over however many rails are actually
-  // racing, so it builds an array on every read — and this runs 120 times a second.
+  // Taken once rather than read per rail below: `rivals.all` is a getter over
+  // however many rails are actually racing, and this runs 120 times a second.
   const field = rivals.all;
   for (let rail = 0; rail < field.length; rail++) {
     const rival = field[rail]!;
@@ -1004,6 +1020,9 @@ const menu = createMenu({
         refreshField();
         // And the seat turns to show you who you just picked. See SWIVEL.
         presentDriver(direction);
+        // And the room, if there is one — the same picker serves the lobby, so a
+        // change made there reaches everyone else's seat list the moment it happens.
+        room?.pick(garage.rider, garage.ride);
       },
     },
     ride: {
@@ -1014,6 +1033,7 @@ const menu = createMenu({
       choose: (index, direction) => {
         garage.setRide(index);
         presentDriver(direction);
+        room?.pick(garage.rider, garage.ride);
       },
     },
   },
@@ -1046,6 +1066,7 @@ const menu = createMenu({
     create: () => enterRoom(newRoomCode()),
     join: (code) => enterRoom(code),
     leave: () => leaveRoom(),
+    pick: (rider, ride) => room?.pick(rider, ride),
     setReady: (ready) => room?.setReady(ready),
     start: () => room?.start(),
   },
@@ -2193,7 +2214,7 @@ function tick(dt: number): void {
     boostThisFrame = Math.max(boostThisFrame, chair.takeBoost());
     impactThisFrame = Math.max(impactThisFrame, chair.telemetry().impact);
     driver.update(h, chair.telemetry(), input);
-    const p = chair.body.translation();
+    const p = chair.position();
     const v = chair.body.linvel();
     const speed = Math.hypot(v.x, v.z);
     const scale = speed > 0.001 ? 1 / speed : 0;
@@ -2634,17 +2655,19 @@ function frame(): void {
      * long enough to feel. Nothing about the physics, the payout or the landing
      * window changes, because none of them can tell the difference.
      *
-     * Only while a flip is actually under way — `telemetry.flipping`, not
-     * `airborne`. Every kerb on this lap puts a castor in the air for a tenth of
-     * a second and a game that lurches into slow motion each time one does is a
-     * game with a stutter, not a trick system.
+     * Only while a flip or a roll is actually under way — `telemetry.tricking`,
+     * not `airborne`. Every kerb on this lap puts a castor in the air for a
+     * tenth of a second and a game that lurches into slow motion each time one
+     * does is a game with a stutter, not a trick system. A roll earns exactly
+     * the same treatment a flip does: it is the same fast rotation on a
+     * different axis, and unreadable for the same reason.
      *
      * And never in a room. Four other people are still driving on the room's own
      * clock; a client that quietly runs its own race at a third speed arrives back
      * seconds behind one that never waited. The same argument the pause already
      * makes in `staged` above, and the same answer.
      */
-    const wanted = !online() && chair.telemetry().flipping ? SLOWMO.scale : 1;
+    const wanted = !online() && chair.telemetry().tricking ? SLOWMO.scale : 1;
     // Rate-limited rather than eased, and asymmetrically — see the note on
     // SLOWMO. `dt` here is still the real one, so the ramp takes the same
     // wall-clock time however slow the world currently is.
@@ -2664,11 +2687,12 @@ function frame(): void {
     for (const [i, rig] of rivalRigs.entries()) {
       const state = racing[i];
       if (!state) continue;
-      rig.driver.update(
-        dt,
-        { along: state.speed, lateralRight: 0, charge: 0, impact: 0, airborne: false, air: 0, flipping: false },
-        { throttle: state.speed > 0.2 ? 1 : 0, steer: 0, drift: false },
-      );
+      // Reused rather than built fresh per rival per frame: `driver.update` only
+      // reads these synchronously and never keeps the reference, so one scratch
+      // pair does for the whole field.
+      RIVAL_TELEMETRY.along = state.speed;
+      RIVAL_INPUT.throttle = state.speed > 0.2 ? 1 : 0;
+      rig.driver.update(dt, RIVAL_TELEMETRY, RIVAL_INPUT);
       rig.rig?.apply(rig.driver.pose);
     }
   }

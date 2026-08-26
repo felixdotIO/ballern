@@ -59,6 +59,10 @@ import { makeRng, range, seedFrom, type Rng } from './rng';
  * mistake: those four are reserved for things you can collect, and a barrier you
  * drive at because it is piñata-coloured is a barrier that has lied to you.
  */
+/** Every colleague's turn is about this axis and never changes — shared rather
+ *  than allocated per person, per frame. */
+const Y_AXIS = new THREE.Vector3(0, 1, 0);
+
 const SHIRTS = [0x3f6fa8, 0x8a4a7d, 0x2f7d63, 0xa8543a, 0x4a5a86, 0x7d6a3a] as const;
 const SKIN = [0xe8c9a8, 0xc59a70, 0x8d6247, 0xf0d8bd] as const;
 
@@ -209,7 +213,17 @@ export function buildCrowd(): Crowd {
   const rng = makeRng(seedFrom('office.crowd'));
 
   /** Where every colleague stands, and the beat they are on. */
-  const people: { x: number; y: number; z: number; yaw: number; phase: number; rate: number; shirt: THREE.Color; skin: THREE.Color }[] = [];
+  const people: {
+    x: number;
+    y: number;
+    z: number;
+    /** Baked at build time: nobody turns, only hops, so this never changes. */
+    quat: THREE.Quaternion;
+    phase: number;
+    rate: number;
+    shirt: THREE.Color;
+    skin: THREE.Color;
+  }[] = [];
 
   for (const stand of STANDS) {
     const across = Math.max(2, Math.round(stand.length / 0.78));
@@ -227,7 +241,7 @@ export function buildCrowd(): Crowd {
           x: stand.at[0] + along * cos + back * sin,
           y: stand.at[1],
           z: stand.at[2] - along * sin + back * cos,
-          yaw: stand.yaw + range(rng, -0.35, 0.35),
+          quat: new THREE.Quaternion().setFromAxisAngle(Y_AXIS, stand.yaw + range(rng, -0.35, 0.35)),
           phase: rng() * Math.PI * 2,
           rate: range(rng, 4.2, 7.4),
           shirt: new THREE.Color(SHIRTS[Math.floor(rng() * SHIRTS.length)]!),
@@ -270,7 +284,6 @@ export function buildCrowd(): Crowd {
   }
 
   const m4 = new THREE.Matrix4();
-  const q = new THREE.Quaternion();
   const pos = new THREE.Vector3();
   const one = new THREE.Vector3(1, 1, 1);
   let clock = 0;
@@ -284,8 +297,7 @@ export function buildCrowd(): Crowd {
       // is a float, and a crowd of floats is a crowd underwater.
       const s = Math.sin(p.phase + clock * p.rate);
       pos.set(p.x, p.y + Math.max(0, s) * HOP, p.z);
-      q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), p.yaw);
-      m4.compose(pos, q, one);
+      m4.compose(pos, p.quat, one);
       for (const part of parts) part.mesh.setMatrixAt(i, m4);
     }
     for (const part of parts) part.mesh.instanceMatrix.needsUpdate = true;

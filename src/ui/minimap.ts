@@ -206,6 +206,10 @@ export function createMinimap(): Minimap {
   for (const sheet of sheets) element.append(sheet.element);
 
   let showing = -1;
+  /** The gate marker last written, so a target that has not moved since the
+   *  last frame is not written to the DOM again every frame it hasn't. */
+  let lastGateX = NaN;
+  let lastGateY = NaN;
 
   return {
     element,
@@ -216,6 +220,10 @@ export function createMinimap(): Minimap {
         showing = wanted;
         for (const [i, sheet] of sheets.entries()) sheet.element.classList.toggle('on', i === wanted);
         caption.textContent = `Escape Plan · ${sheets[wanted]!.label}`;
+        // The sheet just switched in may never have had its own marker placed
+        // at this gate, whatever the last-written coordinates say.
+        lastGateX = NaN;
+        lastGateY = NaN;
       }
 
       const sheet = sheets[wanted]!;
@@ -235,8 +243,12 @@ export function createMinimap(): Minimap {
       // looking at. On the ramps that means it goes out for a couple of seconds,
       // which is correct: there is nothing on this floor to point at.
       const sameLevel = (gateLevel < CUT) === (y < CUT);
-      sheet.target.setAttribute('cx', px(gate[0]));
-      sheet.target.setAttribute('cy', px(gate[1]));
+      if (gate[0] !== lastGateX || gate[1] !== lastGateY) {
+        lastGateX = gate[0];
+        lastGateY = gate[1];
+        sheet.target.setAttribute('cx', px(gate[0]));
+        sheet.target.setAttribute('cy', px(gate[1]));
+      }
       // A class rather than the opacity attribute: the ping animates its own
       // opacity, and a CSS animation beats a presentation attribute every time —
       // which left the marker for a gate on the *other* level pulsing away in
