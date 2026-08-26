@@ -235,8 +235,23 @@ const CSS = `
  * chrome is what sells it. A card with a header bar reads as an application; the
  * same words with no bar read as a notification.
  *
- * Still no interaction anywhere on it, deliberately — there is nothing to click,
- * which is the point. You wait.
+ * ---- and it asks you something now ---------------------------------------
+ *
+ * It used to have nothing on it to do, deliberately, on the argument that waiting
+ * *is* the joke. That argument was wrong in the one way that matters: waiting is
+ * the joke for about two seconds, and this card is up for longer than that, every
+ * time, with the race carrying on behind it. An interruption with nothing to do in
+ * it stops being a gag on the second showing and becomes the thing you dread.
+ *
+ * A question fixes both halves. It is funnier — corporate e-learning is only
+ * really itself when it is making you click the obviously correct answer to a
+ * question about a USB stick in a car park — and it turns a flat punishment into
+ * something you can drive out of. Right answer and you are gone; wrong answer and
+ * the bar goes back to nought, which is exactly what the real software does.
+ *
+ * The keys are 1/2/3 and they are drawn as keycaps, because the player has both
+ * hands on the driving keys and no cursor. Nothing here is clickable and nothing
+ * should be.
  */
 #items .module {
   position: absolute;
@@ -300,6 +315,59 @@ const CSS = `
   max-width: 34em;
 }
 
+/* -- the question ---------------------------------------------------------- */
+
+#items .module .quiz {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 5px;
+}
+#items .module .opt {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  background: rgba(246, 239, 226, 0.05);
+  border: 1px solid rgba(246, 239, 226, 0.08);
+  font-size: 12.5px;
+  line-height: 1.25;
+  color: var(--paper-2);
+  transition: background 120ms linear, border-color 120ms linear, color 120ms linear;
+}
+/* The keycap. It is the whole of the affordance — there is no pointer here. */
+#items .module .opt .key {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  background: rgba(246, 239, 226, 0.12);
+  border-bottom: 2px solid rgba(0, 0, 0, 0.35);
+  color: var(--paper);
+  font: 700 11px/17px ${FAMILY};
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+/* Answered right: the card is about to go, so this only has to register. */
+#items .module .opt.right {
+  background: rgba(74, 168, 104, 0.22);
+  border-color: rgba(74, 168, 104, 0.55);
+  color: var(--paper);
+}
+#items .module .opt.right .key { background: rgba(74, 168, 104, 0.6); }
+/* Answered wrong: struck through and left there, because the retry has to be
+   able to see what has already been tried. */
+#items .module .opt.wrong {
+  background: rgba(216, 69, 47, 0.16);
+  border-color: rgba(216, 69, 47, 0.5);
+  color: var(--paper-3);
+  text-decoration: line-through;
+  text-decoration-color: rgba(216, 69, 47, 0.8);
+}
+#items .module .opt.wrong .key { background: rgba(216, 69, 47, 0.5); }
+
 #items .module .bar {
   margin-top: 14px;
   height: 6px;
@@ -336,6 +404,72 @@ const CSS = `
 #items .hidden { display: none; }
 `;
 
+/**
+ * The question bank.
+ *
+ * Every one of these is a real security-awareness question with a real correct
+ * answer, and that is the joke rather than a departure from it: the humour in
+ * mandatory training is that it is completely sincere. Nothing here is a trick,
+ * because a trick question would make failing feel unfair at the one moment the
+ * player is already being punished, and the wrong answers have to be *obviously*
+ * wrong for the card to be readable in the two seconds it deserves.
+ *
+ * Kept short on purpose. Three options at twelve-point on a 420 px card is the
+ * most that fits without the bar moving, and a player reading this is not
+ * stationary in any sense that matters.
+ */
+type Question = {
+  ask: string;
+  options: readonly [string, string, string];
+  /** Index into `options`. */
+  right: 0 | 1 | 2;
+};
+
+const QUESTIONS: readonly Question[] = [
+  {
+    ask: 'A mail from the Geschäftsführung asks you to send the Q4 payroll file to a private address. It is marked urgent.',
+    options: ['Send it — it is from the boss', 'Verify by phone on a known number', 'Forward it to your own inbox first'],
+    right: 1,
+  },
+  {
+    ask: 'You find a USB stick in the Parkhaus labelled “Gehälter 2026”.',
+    options: ['Plug it in to find the owner', 'Hand it to IT unopened', 'Try it on a colleague’s machine'],
+    right: 1,
+  },
+  {
+    ask: 'Somebody rings claiming to be IT and asks you to read out your MFA code.',
+    options: ['Read it out — they are internal', 'Never share it; report the call', 'Give them the first three digits'],
+    right: 1,
+  },
+  {
+    ask: 'A visitor with no badge follows you through the barrier at reception.',
+    options: ['Hold the door, they look busy', 'Lend them your badge', 'Ask them to sign in at reception'],
+    right: 2,
+  },
+  {
+    ask: 'Your password expires today. Which one is acceptable?',
+    options: ['A long passphrase in the manager', 'Sommer2026!', 'The old one with a 2 on the end'],
+    right: 0,
+  },
+];
+
+/**
+ * What a wrong answer costs, in seconds, and it is deliberately small.
+ *
+ * The module already stops you dead for its own duration; this is a penalty on
+ * top of a penalty, and stacking those is how an item stops being an obstacle
+ * and starts being a lost race. A second and a half is long enough to be felt as
+ * a consequence and short enough that guessing is still better than sitting
+ * there, which is the behaviour worth encouraging — the card should always be
+ * something you *do*.
+ *
+ * Exported because `main.ts` has to add exactly the same number to the chair's
+ * spin-out. The card and the simulation agreeing to the frame is the rule this
+ * whole overlay is written under; two constants a file apart is how that rule
+ * gets broken six months from now.
+ */
+export const WRONG_ANSWER_PENALTY = 1.5;
+
 export type ItemHud = {
   /** Called once a frame. */
   update(dt: number, held: ItemKind | null, trailing: boolean): void;
@@ -343,6 +477,16 @@ export type ItemHud = {
   blind(seconds: number): void;
   /** The compliance module, for as long as the spin-out lasts. */
   module(seconds: number): void;
+  /**
+   * Answer the question on the card, if there is one up.
+   *
+   * Returns what happened so the caller can apply it to the chair: `'correct'`
+   * means the stall is over and the chair should be released, `'wrong'` means
+   * `WRONG_ANSWER_PENALTY` has been added here and must be added there too, and
+   * `null` means there was no card, no question, or that option has already been
+   * tried — in which case nothing happened and nothing should.
+   */
+  answer(index: number): 'correct' | 'wrong' | null;
   setVisible(visible: boolean): void;
   reset(): void;
 };
@@ -370,11 +514,10 @@ export function createItemHud(): ItemHud {
   // The header strip. A seal, what it is, and a status off to the right — the three
   // things every piece of compliance software puts across its top.
   const top = el('div', 'top');
-  top.append(
-    el('div', 'seal', '!'),
-    el('div', 'eyebrow ui', 'Mandatory Training'),
-    el('div', 'state ui', 'In progress'),
-  );
+  // Held rather than built inline: the status is the one part of the strip that
+  // changes, and it changes on every answer.
+  const state = el('div', 'state ui', 'In progress');
+  top.append(el('div', 'seal', '!'), el('div', 'eyebrow ui', 'Mandatory Training'), state);
 
   const fill = el('i');
   const bar = el('div', 'bar');
@@ -388,13 +531,21 @@ export function createItemHud(): ItemHud {
   const foot = el('div', 'foot ui');
   foot.append(el('span', '', 'Module 1 of 1'), remaining);
 
+  // The question, and the three answers under it. Built once and rewritten per
+  // module rather than rebuilt: this appears a handful of times a race, and a
+  // node that is replaced is a node whose transition restarts from nothing.
+  const ask = el('p', 'ui', '');
+  const quiz = el('ul', 'quiz ui');
+  const options = [0, 1, 2].map((i) => {
+    const opt = el('li', 'opt');
+    const label = el('span', '', '');
+    opt.append(el('span', 'key', String(i + 1)), label);
+    quiz.append(opt);
+    return { opt, label };
+  });
+
   const body = el('div', 'body');
-  body.append(
-    el('h2', 'hd', 'Information Security 2026'),
-    el('p', 'ui', 'This module must be completed before you continue driving. Please remain seated.'),
-    bar,
-    foot,
-  );
+  body.append(el('h2', 'hd', 'Information Security 2026'), ask, quiz, bar, foot);
   module.append(top, body);
 
   root.append(slot, powder, module);
@@ -406,6 +557,10 @@ export function createItemHud(): ItemHud {
   let powderSpan = 1;
   let moduleFor = 0;
   let moduleSpan = 1;
+  /** The question currently on the card, or null when there is no card up. */
+  let quizzed: Question | null = null;
+  /** Options already tried and got wrong, so a retry cannot re-answer them. */
+  const spent = new Set<number>();
 
   return {
     setVisible(visible) {
@@ -468,7 +623,50 @@ export function createItemHud(): ItemHud {
       moduleFor = seconds;
       moduleSpan = seconds;
       fill.style.width = '0%';
+
+      // A fresh question every time. Not seeded — see the note on `itemPlay`'s
+      // generator in main.ts: the building is reproducible and a race is not,
+      // and drawing the same question in the same order every lap is exactly the
+      // thing somebody would notice on their third race.
+      quizzed = QUESTIONS[Math.floor(Math.random() * QUESTIONS.length)]!;
+      spent.clear();
+      ask.textContent = quizzed.ask;
+      for (const [i, { opt, label }] of options.entries()) {
+        label.textContent = quizzed.options[i]!;
+        opt.classList.remove('right', 'wrong');
+      }
+      state.textContent = 'In progress';
+
       module.classList.add('on');
+    },
+
+    answer(index) {
+      if (moduleFor <= 0 || !quizzed) return null;
+      if (index < 0 || index > 2 || spent.has(index)) return null;
+
+      if (index === quizzed.right) {
+        options[index]!.opt.classList.add('right');
+        state.textContent = 'Passed';
+        // Down rather than hidden: the card goes on the same frame the chair is
+        // released, because the two have to agree — see `stun` in main.ts — and
+        // a card that lingers for a flourish is a card you are driving behind.
+        moduleFor = 0;
+        quizzed = null;
+        module.classList.remove('on');
+        return 'correct';
+      }
+
+      spent.add(index);
+      options[index]!.opt.classList.add('wrong');
+      state.textContent = 'Failed — retry';
+      // Back to nought, which is the whole of the punishment and is what the real
+      // software does. The span grows with the remaining time so the bar still
+      // reads as a fraction of what is actually left rather than of what was
+      // originally asked for.
+      moduleFor += WRONG_ANSWER_PENALTY;
+      moduleSpan = moduleFor;
+      fill.style.width = '0%';
+      return 'wrong';
     },
 
     reset() {
@@ -478,6 +676,8 @@ export function createItemHud(): ItemHud {
       powder.style.opacity = '0';
       moduleFor = 0;
       module.classList.remove('on');
+      quizzed = null;
+      spent.clear();
     },
   };
 }

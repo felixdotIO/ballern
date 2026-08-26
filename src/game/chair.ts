@@ -126,6 +126,9 @@ const DRIVE = {
    * fail has to pay more than a thing you cannot.
    */
   boostPerFlip: 1.4,
+  /** And per roll brought all the way over — the same commitment as a flip, the
+   *  same nothing-on-a-bail, so it pays the same. */
+  boostPerRoll: 1.4,
   /**
    * The ceiling, raised from 2.6 with the flips.
    *
@@ -172,17 +175,43 @@ const DRIVE = {
    *
    * Backwards on S, because the brake is the only other axis with no airborne
    * meaning and "lean back" is what it already means everywhere else.
+   *
+   * ---- and the direction was backwards -------------------------------------
+   *
+   * `pitch` rotates about the chair's own local X, and the sign that reads as
+   * "forward" is not the sign that feels like it. Positive tips the nose *up*
+   * first — a backflip — and negative tips it *down* first into a proper
+   * forward tumble. The trigger below had the default case, the one almost
+   * every jump actually uses, wired to the backflip: let go of nothing in
+   * particular, or hold W, and the chair reared back rather than tumbling
+   * forward, which is the one thing a "front flip" must not do. S still leans
+   * back on purpose — that direction was always meant to be the backflip — it
+   * was the *other* one, the one nobody was asking for, that had the sign on it.
+   *
+   * ---- and now there is a second one ---------------------------------------
+   *
+   * A flip is a whole turn about the chair's own right axis; a roll is the same
+   * commitment about its own forward axis, and it is the same key with a second
+   * hand on the wheel: hold drift *and* a steering direction rather than drift
+   * alone, and the chair rolls that way instead of flipping. Nothing to switch
+   * between them explicitly — whichever axis you are already holding a
+   * direction on is the one you get — and the two are mutually exclusive by
+   * construction, so a chair already mid-flip cannot also be talked into a roll
+   * out from under itself.
    */
   /**
-   * Rotation once a flip is under way, rad/s.
+   * Rotation once a flip or a roll is under way, rad/s.
    *
-   * 22 brings a whole turn round in 0.29 s. It was 14 — a 0.45 s turn — chosen
-   * against a hypothetical ramp rather than a measured one, and it made a flip
-   * something you could only bail: the jump this floor actually gives is 0.65 s,
-   * so a turn taking 0.45 left a tenth of a second at each end to decide, react
-   * and land in. At 0.29 one flip fits inside that with room to spare and two fit
-   * on the big kicker, which is the shape a trick wants — comfortably possible,
-   * and still a decision.
+   * 22 brings a whole turn round in 0.29 s. Left exactly where it was, and
+   * deliberately: the tempting move on adding the liftoff pop below was to
+   * spend the extra height on a slower, more legible turn instead — and
+   * `main.ts` has a comment above its slow-motion window that is the record of
+   * that being tried once already and costing every other number tuned against
+   * this one its footing. What actually makes a fast flip readable is that
+   * comment's own fix — the render clock stretching a trick out to about three
+   * times its simulated length — not a slower simulation, so the rate stays
+   * the rate and the roll shares it for the same reason a second trick should
+   * feel like the first one, just about a different axis.
    */
   flipRate: 22,
   /**
@@ -337,6 +366,25 @@ const DRIVABLE_NORMAL_Y = 0.5;
 const MAX_SLOPE_PULL = 3.0;
 
 /**
+ * The lip, given a little more than the ramp alone hands out.
+ *
+ * A kicker's actual launch is whatever Rapier's own collision response makes
+ * of a capsule leaving a sloped collider at speed — real, and honest, and on
+ * the office kicker it is about four tenths of a second, which is not enough
+ * air to make a flip feel like a choice rather than a scramble. This is a
+ * one-off vertical nudge added at the instant the castors leave the floor,
+ * sized off how steep whatever they just left was — `MAX_SLOPE_PULL`'s own
+ * units, so a kicker at the model's steepest gets the full nudge and a normal
+ * floor or a shallow garage ramp, where the slope term is small or zero,
+ * gets nothing worth noticing. It is not a second source of lift so much as
+ * it is the model admitting a ramp is supposed to be a jump.
+ */
+const POP_PER_SLOPE = 0.5;
+/** However steep the ramp, the pop itself is capped — a taller kicker built
+ *  later should not get an ever-larger vertical assist for free. */
+const MAX_POP = 1.6;
+
+/**
  * What the chair knows about itself, expressed in its own frame so the driver
  * animation never has to do vector maths to work out which way it is sliding.
  */
@@ -353,6 +401,16 @@ export type Telemetry = {
   airborne: boolean;
   /** Seconds since the castors left the floor, 0 on the ground. */
   air: number;
+  /**
+   * A flip or a roll is under way right now — committed, and not yet round.
+   *
+   * Separate from `airborne` because they are different questions and only one of
+   * them is worth interrupting the game for. Every kerb on the lap makes a chair
+   * airborne for a tenth of a second; a trick is a thing the player asked for and
+   * can still fail. `skins/clay/main.ts` is what reads it, and what it does with
+   * it is slow time down — see the note on SLOWMO there.
+   */
+  tricking: boolean;
 };
 
 /**
@@ -387,6 +445,9 @@ export type Trick = {
    * it was in the middle of.
    */
   flips: number;
+  /** Whole barrel rolls brought all the way round before touchdown. Counted and
+   *  paid the same way flips are — see the note there. */
+  rolls: number;
   /** How much speed the landing paid out, m/s. Zero on a bail. */
   boost: number;
   /**
@@ -412,6 +473,18 @@ export type Chair = {
   body: RAPIER.RigidBody;
   update(h: number, input: Input): void;
   sync(): void;
+  /**
+   * Where `update` found the body at the top of this substep.
+   *
+   * The same value `body.translation()` would return until `sync` next runs —
+   * `update` already reads it once and holds onto it, so a caller inside the
+   * same substep should read it here rather than crossing back into wasm for
+   * a number that has not changed. See the note on the scratch vector.
+   */
+  position(): THREE.Vector3;
+  /** The heading `update` just wrote into the body, as the plain number it
+   *  already was rather than a quaternion decoded back out of one. */
+  yaw(): number;
   speed(): number;
   driftCharge(): number;
   /** Which rung the charge has climbed to right now, 0–3. For the sparks. */
@@ -451,6 +524,17 @@ export type Chair = {
   stun(seconds: number): void;
   /** Seconds of spin-out left. Zero when it is being driven. */
   stunned(): number;
+  /**
+   * End a spin-out now, whatever was left of it.
+   *
+   * The one thing `stun` cannot express, because `stun` takes the longer of the
+   * two on purpose — which is right for two hits landing together and wrong for
+   * the case this exists for: the training module, where answering the question
+   * correctly is supposed to buy back the rest of the stall. A player who has
+   * earned their way out has to actually get out, and `stun(0)` under a `max` is
+   * a no-op that looks like a bug in the answer rather than in the call.
+   */
+  release(): void;
   /**
    * Straight speed along the facing, m/s, with the speed ceiling lifted by the
    * same amount for `hold` seconds.
@@ -520,7 +604,7 @@ export function createChair(
   let yaw = spawn.yaw;
   let charge = 0;
   let boosting = false;
-  const telemetry: Telemetry = { along: 0, lateralRight: 0, charge: 0, impact: 0, airborne: false, air: 0 };
+  const telemetry: Telemetry = { along: 0, lateralRight: 0, charge: 0, impact: 0, airborne: false, air: 0, tricking: false };
 
   /** The jump in progress, and the one waiting to be reported. */
   let air = 0;
@@ -538,11 +622,22 @@ export function createChair(
    * from there. See `sync`, which is the only thing that reads it.
    */
   let pitch = 0;
-  /** Which way the flip in progress is going: +1 forward, −1 back, 0 for none. */
+  /** Which way the flip in progress is going, 0 for none: +1 leans back into a
+   *  backflip, −1 tips forward into a front flip. See the note on `flipRate`. */
   let flipping = 0;
   /** Radians still owed on the flip in progress. */
   let flipLeft = 0;
   let flips = 0;
+
+  /** The roll: the same bookkeeping as the flip, about the chair's own forward
+   *  axis instead of its right one. See the note above `flipRate`. */
+  let roll = 0;
+  /** Which way the roll in progress is going, 0 for none. */
+  let rolling = 0;
+  /** Radians still owed on the roll in progress. */
+  let rollLeft = 0;
+  let rolls = 0;
+
   /** Scratch for `sync`: the mesh origin's offset from the body's centre. */
   const lift = new THREE.Vector3();
   // Heading first, then the flip about the chair's own right axis — see `sync`.
@@ -567,6 +662,28 @@ export function createChair(
   const lateral = new THREE.Vector3();
   const probe = new THREE.Vector3();
   const ground = new THREE.Vector3(0, 1, 0);
+  /**
+   * Where the body was at the top of this substep, fetched once and shared.
+   *
+   * `translation()` crosses into the wasm heap and hands back a fresh object on
+   * every call, and nothing in a single substep moves the body between one call
+   * and the next — `world.step()` is what does that, and it has not run yet.
+   * `onGround`, `slopeAlong` and `airLeft` all used to fetch it themselves, and
+   * `main.ts` fetched it again twice more outside `update` for the same
+   * unmoved position. Read once here at the top of `update`, exposed to the
+   * caller through `position()`, so the frame pays for it once instead of four
+   * or five times over — which especially matters the frame after a stall,
+   * when the catch-up loop in physics.ts runs several of these back to back.
+   */
+  const position = new THREE.Vector3();
+
+  /** Whether the castors were down as of the last step, so a landing-to-airborne
+   *  edge can be told from simply having been airborne all along. */
+  let wasGrounded = true;
+  /** The last slope `slopeAlong` measured while still grounded — what the pop at
+   *  the top of a jump is sized off, since by the time the castors are up there
+   *  is nothing left underneath them to probe. */
+  let lastSlope = 0;
 
   function currentForward(): THREE.Vector3 {
     // three's convention: an unrotated object faces -Z.
@@ -584,8 +701,7 @@ export function createChair(
    * owns the vertical.
    */
   function slopeAlong(fwd: THREE.Vector3): number {
-    const p = body.translation();
-    probe.set(p.x, p.y, p.z);
+    probe.copy(position);
     if (!physics.groundNormal(probe, HALF_HEIGHT + RADIUS + 0.3, body, ground)) return 0;
     if (ground.y < DRIVABLE_NORMAL_Y) return 0;
 
@@ -621,20 +737,22 @@ export function createChair(
    * wants the distance rather than the fact.
    */
   function airLeft(): number {
-    const p = body.translation();
-    probe.set(p.x, p.y, p.z);
+    probe.copy(position);
     const drop = Math.max(0, physics.rayToSolid(probe, DOWN, 20, body) - CENTRE_Y);
     const vy = body.linvel().y;
     return (vy + Math.sqrt(vy * vy + 2 * GRAVITY * drop)) / GRAVITY;
   }
 
   function onGround(): boolean {
-    const p = body.translation();
-    probe.set(p.x, p.y, p.z);
+    probe.copy(position);
     return physics.groundNormal(probe, HALF_HEIGHT + RADIUS + 0.06, body, ground);
   }
 
   function update(h: number, given: Input): void {
+    // Fetched once for the whole substep — see the note on `position` above.
+    const p = body.translation();
+    position.set(p.x, p.y, p.z);
+
     if (stunned > 0) stunned -= h;
     if (boostFor > 0) boostFor -= h;
     /*
@@ -665,6 +783,10 @@ export function createChair(
     }
 
     const grounded = onGround();
+    // The one frame this transitions, not every frame it stays true — a pop
+    // applied for as long as the castors are up would be a second gravity.
+    const justLaunched = !grounded && wasGrounded;
+    wasGrounded = grounded;
 
     /*
      * In the air, and nothing else in this function applies.
@@ -678,6 +800,14 @@ export function createChair(
      * what you did.
      */
     if (!grounded) {
+      // The lip. See the note on `POP_PER_SLOPE`: sized off how steep whatever
+      // the castors just left was, so a ramp gets a real nudge and a normal
+      // floor gets nothing worth noticing.
+      if (justLaunched) {
+        const pop = Math.min(MAX_POP, Math.abs(lastSlope) * POP_PER_SLOPE);
+        if (pop > 0) body.setLinvel({ x: v.x, y: v.y + pop, z: v.z }, true);
+      }
+
       air += h;
       const turn = input.steer * DRIVE.airSteerRate * h;
       yaw -= turn;
@@ -688,20 +818,28 @@ export function createChair(
       if (stunned > 0) yaw -= DRIVE.stunSpin * h;
 
       /*
-       * And the flip. Held rather than pressed — see the note above `flipRate` for
-       * why the drift key and not the throttle.
+       * The flip and the roll. Held rather than pressed — see the note above
+       * `flipRate` for why the drift key and not the throttle, and for why a
+       * steering direction held alongside it picks the roll instead.
        *
-       * Only one at a time, and the next only starts once the last has come all the
-       * way round. Holding it through a long jump chains them; letting go stops
-       * after the one in progress, which is what makes a double a decision rather
-       * than a consequence of not letting go in time.
+       * Only one trick at a time, of either kind, and the next only starts once
+       * the last has come all the way round. Holding drift through a long jump
+       * chains them — the same trick again, or the other one, whichever
+       * direction is being held when the last one finishes — and letting go
+       * stops after the one in progress, which is what makes a double a
+       * decision rather than a consequence of not letting go in time.
        */
-      // A whole flip's worth of air, not a graced one: the grace exists to rescue a
-      // turn already committed that ran a frame short, and spending it up front to
-      // *permit* a flip is how you get a chain that always ends on its back.
-      if (flipping === 0 && input.drift && stunned <= 0 && airLeft() >= FLIP_TIME) {
-        flipping = input.throttle < -0.5 ? -1 : 1;
-        flipLeft = Math.PI * 2;
+      // A whole turn's worth of air, not a graced one: the grace exists to
+      // rescue a turn already committed that ran a frame short, and spending it
+      // up front to *permit* one is how you get a chain that always ends badly.
+      if (flipping === 0 && rolling === 0 && input.drift && stunned <= 0 && airLeft() >= FLIP_TIME) {
+        if (input.steer !== 0) {
+          rolling = input.steer < 0 ? 1 : -1;
+          rollLeft = Math.PI * 2;
+        } else {
+          flipping = input.throttle < -0.5 ? 1 : -1;
+          flipLeft = Math.PI * 2;
+        }
       }
       if (flipping !== 0) {
         const step = Math.min(flipLeft, DRIVE.flipRate * h);
@@ -716,6 +854,16 @@ export function createChair(
           pitch = Math.round(pitch / (Math.PI * 2)) * Math.PI * 2;
         }
       }
+      if (rolling !== 0) {
+        const step = Math.min(rollLeft, DRIVE.flipRate * h);
+        roll += rolling * step;
+        rollLeft -= step;
+        if (rollLeft <= 0) {
+          rolls++;
+          rolling = 0;
+          roll = Math.round(roll / (Math.PI * 2)) * Math.PI * 2;
+        }
+      }
 
       telemetry.impact = 0;
       telemetry.along = along;
@@ -723,6 +871,7 @@ export function createChair(
       telemetry.lateralRight = lateral.dot(right);
       telemetry.charge = charge;
       telemetry.airborne = true;
+      telemetry.tricking = flipping !== 0 || rolling !== 0;
       telemetry.air = air;
 
       body.setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) }, true);
@@ -732,10 +881,10 @@ export function createChair(
     // Down. Anything worth calling a jump pays out here, once.
     if (air > 0) {
       /*
-       * The one in progress, if it was near enough round. See `flipGrace`: a flip
-       * that ran out of air a frame from home is a jump that was a frame short, not
-       * a mistake, and snapping it the rest of the way costs nothing and stops the
-       * trick punishing its own near-misses.
+       * Whichever trick was in progress, if it was near enough round. See
+       * `flipGrace`: a turn that ran out of air a frame from home is a jump that
+       * was a frame short, not a mistake, and snapping it the rest of the way
+       * costs nothing and stops the trick punishing its own near-misses.
        */
       if (flipping !== 0 && flipLeft <= Math.PI * 2 * (1 - DRIVE.flipGrace)) {
         pitch += flipping * flipLeft;
@@ -743,16 +892,26 @@ export function createChair(
         flipping = 0;
         flips++;
       }
+      if (rolling !== 0 && rollLeft <= Math.PI * 2 * (1 - DRIVE.flipGrace)) {
+        roll += rolling * rollLeft;
+        rollLeft = 0;
+        rolling = 0;
+        rolls++;
+      }
 
       /*
-       * How far off level the seat came down, once the whole turns are taken out.
+       * How far off level the seat came down on each axis, once the whole turns
+       * are taken out.
        *
-       * A flip finished is a flip that put the chair back exactly where it started,
-       * so a clean three-flip landing wraps to zero and a bail wraps to however far
-       * round it got. Which is the only question worth asking on touchdown.
+       * A flip or a roll finished is one that put the chair back exactly where
+       * it started, so a clean landing wraps both to zero and a bail wraps to
+       * however far round whichever one it was got. Which is the only question
+       * worth asking on touchdown, and it is asked of both axes: a chair can
+       * come down clean on its flip and still be lying on its side mid-roll.
        */
       const level = Math.atan2(Math.sin(pitch), Math.cos(pitch));
-      const clean = Math.abs(level) <= DRIVE.uprightWindow;
+      const rollLevel = Math.atan2(Math.sin(roll), Math.cos(roll));
+      const clean = Math.abs(level) <= DRIVE.uprightWindow && Math.abs(rollLevel) <= DRIVE.uprightWindow;
 
       // A landing does not pay while you are still spinning out of a hit. It is
       // the same rule as above and the same reason.
@@ -763,16 +922,18 @@ export function createChair(
             DRIVE.maxTrickBoost,
             air * DRIVE.boostPerAirSecond +
               (degrees / 180) * DRIVE.boostPerHalfTurn +
-              flips * DRIVE.boostPerFlip,
+              flips * DRIVE.boostPerFlip +
+              rolls * DRIVE.boostPerRoll,
           );
           along += boost * Math.sign(along || 1);
-          landed = { air, degrees, flips, boost, clean: true };
+          landed = { air, degrees, flips, rolls, boost, clean: true };
         } else {
-          // Landed on its back. No payout, and a bite out of the speed — which is
-          // the whole reason a flip is a decision rather than a free press: the
-          // ramp is worth more than the flat line only if you bring it round.
+          // Landed on its back or its side. No payout, and a bite out of the
+          // speed — which is the whole reason a trick is a decision rather than
+          // a free press: the ramp is worth more than the flat line only if you
+          // bring it round.
           along *= DRIVE.bailKeep;
-          landed = { air, degrees, flips, boost: 0, clean: false };
+          landed = { air, degrees, flips, rolls, boost: 0, clean: false };
         }
       }
       air = 0;
@@ -780,11 +941,16 @@ export function createChair(
       flips = 0;
       flipping = 0;
       flipLeft = 0;
-      // The whole turns go, the residual stays and is eased out below, so the seat
-      // settles back onto its castors instead of snapping level on the frame a
-      // castor touched.
+      rolls = 0;
+      rolling = 0;
+      rollLeft = 0;
+      // The whole turns go, the residual stays and is eased out below, so the
+      // seat settles back onto its castors instead of snapping level on the
+      // frame a castor touched.
       pitch = level;
+      roll = rollLevel;
       telemetry.airborne = false;
+      telemetry.tricking = false;
       telemetry.air = 0;
     }
 
@@ -794,10 +960,16 @@ export function createChair(
       pitch *= Math.pow(0.0002, h);
       if (Math.abs(pitch) < 1e-4) pitch = 0;
     }
+    if (roll !== 0) {
+      roll *= Math.pow(0.0002, h);
+      if (Math.abs(roll) < 1e-4) roll = 0;
+    }
 
     // What the slope is doing, before anything else asks how fast the chair may
     // go — because on a ramp that is the thing setting the answer.
     const slope = slopeAlong(fwd);
+    // Held for the next liftoff's pop — see `justLaunched` above.
+    lastSlope = slope;
     const cap = Math.max(1.5, DRIVE.maxSpeed + slope * DRIVE.slopeSpeedGain);
 
     // Steering. Authority scales with speed so the chair is twitchy when it is
@@ -926,22 +1098,25 @@ export function createChair(
   }
 
   /**
-   * Put the mesh where the body is, and at whatever angle the flip has it.
+   * Put the mesh where the body is, and at whatever angle the flip or roll has it.
    *
-   * The pitch lives here and nowhere else: the solver's body stays a capsule that
-   * only ever turns about Y, because a chair that could really tip is a chair that
-   * catches a corner on a doorframe and ends the race on its side. What flips is
-   * the *picture* — which is the same bargain the whole driving model makes, and
-   * it holds for the same reason: nothing about a flip needs to be collided with.
+   * The pitch and the roll live here and nowhere else: the solver's body stays a
+   * capsule that only ever turns about Y, because a chair that could really tip
+   * is a chair that catches a corner on a doorframe and ends the race on its
+   * side. What flips and rolls is the *picture* — which is the same bargain the
+   * whole driving model makes, and it holds for the same reason: nothing about a
+   * trick needs to be collided with.
    *
-   * `YXZ` so `.rotation.y` stays the plain heading whatever the pitch is doing.
-   * Half the game reads that number — the chase camera, the taxiway sign, the
-   * trail an item is dragged on — and every one of them wants the yaw rather than
-   * a component of some composed angle.
+   * `YXZ` composes as roll first, about the chair's own forward axis, then pitch
+   * about the (already rolled) right axis, then yaw last about world up — which
+   * is also why `.rotation.y` stays the plain heading whatever the other two are
+   * doing. Half the game reads that number — the chase camera, the taxiway sign,
+   * the trail an item is dragged on — and every one of them wants the yaw rather
+   * than a component of some composed angle.
    */
   function sync(): void {
     const p = body.translation();
-    object.rotation.set(pitch, yaw, 0);
+    object.rotation.set(pitch, yaw, roll);
     /*
      * And it turns about the seat, not about the castors.
      *
@@ -961,6 +1136,12 @@ export function createChair(
     body,
     update,
     sync,
+    position() {
+      return position;
+    },
+    yaw() {
+      return yaw;
+    },
     speed() {
       const v = body.linvel();
       return Math.hypot(v.x, v.z);
@@ -996,6 +1177,9 @@ export function createChair(
     stunned() {
       return Math.max(0, stunned);
     },
+    release() {
+      stunned = 0;
+    },
     push(speed, hold) {
       pending += speed;
       boostBy = Math.max(boostFor > 0 ? boostBy : 0, speed);
@@ -1022,15 +1206,22 @@ export function createChair(
       boosting = false;
       // A chair put back on the grid is not mid-jump, and must not pay out for
       // the one it was on when the race was restarted — nor arrive halfway
-      // through the flip it was in the middle of.
+      // through the flip or roll it was in the middle of.
       air = 0;
       spun = 0;
       pitch = 0;
       flipping = 0;
       flipLeft = 0;
       flips = 0;
+      roll = 0;
+      rolling = 0;
+      rollLeft = 0;
+      rolls = 0;
+      wasGrounded = true;
+      lastSlope = 0;
       landed = null;
       telemetry.airborne = false;
+      telemetry.tricking = false;
       telemetry.air = 0;
       // Nor is it spinning out of something that happened in the last race, or
       // still carrying a boost it was handed before the grid was cleared.

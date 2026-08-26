@@ -311,41 +311,62 @@ export function createLightPool(scene: THREE.Scene): LightPool {
     }
   }
 
-  const ranked: { index: number; score: number }[] = [];
+  // One ranked scratch array and one spoken-for flag array per kind, reused across
+  // frames rather than rebuilt — this runs unconditionally every frame, for every
+  // kind, so a fresh Set and a fresh {index,score} per candidate here was the
+  // single hottest allocation site in the renderer. The kinds keep separate
+  // scratch arrays rather than sharing one: each settles at its own steady-state
+  // candidate count, and a shared array would have one kind's truncation discard
+  // another kind's cached objects every frame.
+  const ranked: Record<Kind, { index: number; score: number }[]> = { rect: [], point: [], spot: [] };
+  const spoken: Record<Kind, Uint8Array> = {
+    rect: new Uint8Array(emitters.rect.length),
+    point: new Uint8Array(emitters.point.length),
+    spot: new Uint8Array(emitters.spot.length),
+  };
 
   function updateKind(kind: Kind, focus: THREE.Vector3, dt: number): void {
     const list = emitters[kind];
     const slots = pools[kind];
+    const rank = ranked[kind];
+    const marks = spoken[kind];
 
-    ranked.length = 0;
+    let count = 0;
     for (let i = 0; i < list.length; i++) {
       const score = influence(list[i]!, focus);
-      if (score > 0) ranked.push({ index: i, score });
+      if (score > 0) {
+        let r = rank[count];
+        if (!r) rank[count] = r = { index: 0, score: 0 };
+        r.index = i;
+        r.score = score;
+        count++;
+      }
     }
-    ranked.sort((a, b) => b.score - a.score);
+    rank.length = count;
+    rank.sort((a, b) => b.score - a.score);
 
     // Anything a slot is already showing keeps it, so a light only ever changes
     // hands when a genuinely brighter one turns up.
-    const spoken = new Set<number>();
-    for (const slot of slots) if (slot.incoming >= 0) spoken.add(slot.incoming);
+    marks.fill(0);
+    for (const slot of slots) if (slot.incoming >= 0) marks[slot.incoming] = 1;
 
     let next = 0;
     for (const slot of slots) {
       // Skip past candidates that are already on screen in another slot.
-      while (next < ranked.length && spoken.has(ranked[next]!.index)) next++;
+      while (next < count && marks[rank[next]!.index] === 1) next++;
 
-      const candidate = next < ranked.length ? ranked[next]! : null;
+      const candidate = next < count ? rank[next]! : null;
       const held = slot.incoming >= 0 ? influence(list[slot.incoming]!, focus) : 0;
 
       if (candidate && candidate.score > held * TAKEOVER_MARGIN) {
-        spoken.delete(slot.incoming);
-        spoken.add(candidate.index);
+        if (slot.incoming >= 0) marks[slot.incoming] = 0;
+        marks[candidate.index] = 1;
         slot.incoming = candidate.index;
         next++;
       } else if (slot.incoming >= 0 && held <= 0) {
         // Walked out of range of whatever it was holding, and nothing to take
         // its place — fade it out rather than snapping it off.
-        spoken.delete(slot.incoming);
+        marks[slot.incoming] = 0;
         slot.incoming = -1;
       }
 

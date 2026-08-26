@@ -5,9 +5,10 @@
  * and they are worth stating because getting any of them subtly wrong is the
  * difference between a track and a room you drive around in:
  *
- *  - The lap counts when you cross the line having actually driven a lap's worth
- *    of road to get there. See `completeLap` for why that replaced a checkpoint
- *    sequence, and what the sequence was doing wrong.
+ *  - The lap counts when you cross the line having gone through every door on
+ *    the way round, and driven a lap's worth of road to get there. See
+ *    `completeLap` for why it is doors rather than checkpoints, and why nothing
+ *    cares what order you take them in.
  *  - The clock starts on GO and never stops until the last crossing.
  *  - A lap's time is the gap between two crossings of the line, not the sum of
  *    anything. Timing has to survive a crash, a reverse and a reset.
@@ -25,7 +26,7 @@
 
 import type * as THREE from 'three';
 
-import { GATES, LAPS, ROUTE } from '../office/plan';
+import { DOORS, GATES, LAPS, ROUTE } from '../office/plan';
 
 export type Phase =
   /** On the grid, engine off, clock at zero. */
@@ -287,6 +288,16 @@ export function createRace(): Race {
   /** Road distance at the last counted crossing. What a lap is measured from. */
   let roadAtLap = 0;
 
+  /**
+   * Which doors have been driven through since the last counted crossing.
+   *
+   * A set of indices into `DOORS` rather than a cursor into it, and that is the
+   * whole design — see the note above `DOORS`. There is no "expected next" here
+   * to get stuck on, so no door can jam the lap, and one missed on a scruffy lap
+   * can be gone back for.
+   */
+  const through = new Set<number>();
+
   let px = 0;
   let pz = 0;
   let seeded = false;
@@ -323,34 +334,43 @@ export function createRace(): Race {
   }
 
   /**
-   * ---- why the checkpoints are gone ----------------------------------------
+   * ---- doors, not checkpoints ----------------------------------------------
    *
-   * The rule used to be: cross all fourteen gates, in order, the right way
+   * The rule was once: cross all fourteen `GATES`, in order, the right way
    * round. It is the classic answer and it was quietly ruining races.
    *
-   * A gate is an invisible plane of a fixed width, and several of them were
-   * barely wider than the chair — "Open Plan South" was 2.9 m, in an open-plan
-   * room, where there is no doorway to justify any particular number. Only the
+   * A gate is an invisible plane of an invented width, and several were barely
+   * wider than the chair — "Open Plan South" was 2.9 m, in an open-plan room,
+   * where there is no doorway to justify any particular number. Worse, only the
    * *expected* gate was ever tested, so missing one did not cost you a gate, it
-   * jammed the sequence for the rest of the race: you could drive three perfect
-   * laps afterwards and the counter would never move again. Simulated on the
-   * real route, driving 1.5 m off the racing line — about one chair's width, in
-   * a room the size of a tennis court — completed **zero** laps out of three,
-   * and there was nothing on screen to say why.
+   * jammed the sequence for the rest of the race: three perfect laps afterwards
+   * and the counter would never move again. Simulated on the real route, driving
+   * 1.5 m off the racing line — one chair's width, in a room the size of a
+   * tennis court — completed **zero** laps out of three, silently.
    *
-   * So the lap is counted in the one quantity that is already continuous,
-   * already correct, and already trusted by the standings: distance driven
-   * along the route. Cross the line having driven a lap's worth of road, and it
-   * is a lap. Reversing over the line gains nothing, because road goes *down*
-   * when you drive backwards. Cutting across the floorplate gains nothing,
-   * because road is measured on the route and the nearest-point search is
-   * windowed — it does not follow a chair that teleports across a room.
+   * Both faults are in *where the checkpoints were*, not in the idea. So they
+   * have moved to the only places in the building that can carry them honestly:
+   * the doors. See the note above `DOORS` for the whole argument, but the short
+   * of it is that a doorway's width is not a judgement call — pass through the
+   * wall at all and you passed through the opening, because the rest of the wall
+   * is solid. Which side of a table you took cannot cost you anything, because
+   * there is no checkpoint anywhere near the table.
    *
-   * The plane crossing survives, and only for what it was always best at:
-   * stamping the exact moment. Resolving the finish to the segment the chair
-   * travelled puts the recorded time within about 8 ms, which is the whole
-   * argument at the top of this file. What it no longer does is decide whether
-   * the lap was legal.
+   * And nothing is asked about order, because the building already enforces it
+   * and does so better: there is no way to the Waschbox except across the cage
+   * store, none to Ebene 5 except down the Ausfahrt. Every unclaimed door is
+   * tested every substep, so there is no cursor to jam and a door missed on a
+   * scruffy lap can be gone back for.
+   *
+   * Road distance stays underneath as the backstop for the one thing a doorway
+   * cannot see — a chair that ended up somewhere it could not have driven to —
+   * and because road goes *down* when you reverse, so a backwards crossing of
+   * the line still gains nothing.
+   *
+   * The finish plane survives for what it was always best at: stamping the
+   * exact moment. Resolving it to the segment the chair travelled puts the
+   * recorded time within about 8 ms, which is the argument at the top of this
+   * file.
    */
   function completeLap(): void {
     const time = lapTime;
@@ -390,11 +410,35 @@ export function createRace(): Race {
         totalTime += h;
 
         /*
-         * One plane, and a distance to justify it. GATES[0] is the finish line;
-         * nothing else is tested any more, by anything.
+         * Every door not yet claimed, every substep.
+         *
+         * All of them rather than the next one, which is the difference between
+         * this and the checkpoint sequence it replaces: there is no cursor to
+         * advance and therefore nothing to leave behind. The cost is twelve
+         * plane tests a substep — about fourteen hundred a second, against a
+         * solver doing rather more than that — and what it buys is that no
+         * ordering mistake, on the player's part or ours, can produce a lap that
+         * silently refuses to count.
          */
-        if (crossed(GATES[0]!, x, y, z) && road - roadAtLap >= LAP_LENGTH * LAP_SHARE) {
+        for (let i = 0; i < DOORS.length; i++) {
+          if (!through.has(i) && crossed(DOORS[i]!, x, y, z)) through.add(i);
+        }
+
+        /*
+         * And the line, with both things that justify it: every door behind you,
+         * and a lap's worth of road under you.
+         *
+         * The doors are the rule — they are what says you went the way the lap
+         * goes, and they say it without caring which side of any table you took.
+         * The road figure is the backstop for the one thing a doorway cannot
+         * see, which is a chair that arrived somewhere it could not have driven
+         * to; it is also what stops a reversed crossing counting, since road
+         * goes down when you drive backwards.
+         */
+        const complete = through.size === DOORS.length;
+        if (complete && crossed(GATES[0]!, x, y, z) && road - roadAtLap >= LAP_LENGTH * LAP_SHARE) {
           roadAtLap = road;
+          through.clear();
           completeLap();
         }
 
@@ -442,6 +486,7 @@ export function createRace(): Race {
       splits = [];
       best = null;
       pending = null;
+      through.clear();
       // `roadAtLap` is re-seeded from the first update rather than zeroed: a
       // restart puts the chair back on its slot, which is a *negative* road
       // position, and zeroing here would credit the player with the grid's own

@@ -212,6 +212,31 @@ export const FLUORESCENT = {
 } as const;
 
 /**
+ * And the hall runs a warm one, which is the second exception and the one that
+ * makes the front of house a front of house.
+ *
+ * Nobody has ever put 4000 K triphosphor tubes in a reception. The lamp that
+ * goes in a lobby downlight and behind a Lichtvoute is a warm one — low-voltage
+ * halogen in 2004, around 2900 K — because the room's whole job is to be the
+ * one place in the building that does not feel like the office behind it. The
+ * offices keep their green-white; walking out of the core into this should read
+ * as walking into a different temperature.
+ *
+ * It is also the fix for what the hall actually looked like. Lit at 4000 K, the
+ * one room made of pale granite, plaster and glass came out grey-green and
+ * washed — a colour with no warmth in it, spread evenly over every surface,
+ * which is the precise recipe for milk. The building is at golden hour outside
+ * those windows and the lobby was the coldest room in it.
+ */
+export const RECEPTION = {
+  referent: 'low-voltage halogen downlight, ~2900 K, in a plastered lid',
+  color: 0xffd9ad,
+  /** Per downlight rather than per louvre, so it is a smaller number than the
+   *  tube's for the same apparent brightness on the floor. */
+  intensity: 4.2,
+} as const;
+
+/**
  * The EDV room runs a different lamp, and it is the only room in the building
  * that does: bare 6500 K daylight tubes in a batten, because nobody specifies
  * for comfort in a room with no chairs in it. Against the 4000 K green-white

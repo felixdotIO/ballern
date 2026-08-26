@@ -99,6 +99,8 @@ export type MenuHooks = {
     create(): void;
     join(code: string): void;
     leave(): void;
+    /** Tell the room who you are now. A no-op outside one. */
+    pick(rider: number, ride: number): void;
     setReady(ready: boolean): void;
     start(): void;
   };
@@ -528,6 +530,15 @@ const CSS = `
  * and the label was costing a third of the width to repeat the placeholder.
  */
 #menu .lobby .field { display: flex; gap: 10px; align-items: center; margin: 18px 0 0; }
+/*
+ * The reason the two buttons below are dead, read where the eye already is.
+ *
+ * The accent rather than the muted grey every other note on this sheet uses:
+ * this is not a status, it is the one thing standing between you and the
+ * button you just looked at, and it needs to read as an instruction rather
+ * than as commentary. Gone the instant it stops being true.
+ */
+#menu .lobby .hint { color: var(--hot); font: 600 12.5px/1.4 ${FAMILY}; margin: 8px 0 0; }
 #menu .lobby label {
   font: 600 11px/1 ${FAMILY}; letter-spacing: .14em; text-transform: uppercase;
   color: var(--paper-2); min-width: 92px;
@@ -613,6 +624,27 @@ const CSS = `
 #menu .lobby .share .shown {
   flex: 1; font: 800 30px/1 ${FAMILY}; letter-spacing: .3em; color: var(--hot);
 }
+/*
+ * The character select, shrunk to fit a 560 px sheet rather than a whole rail.
+ *
+ * Same tiles, same rules — .pick/.grid/.tile are the rail's own classes — at a
+ * size that lets both rows sit under the room code without the sheet growing
+ * past the seat list under them. 36 px is the rail's own tile made one third
+ * smaller, which seven of them plus their gaps still clears easily.
+ */
+#menu .lobby .picks { gap: 18px; margin: 16px 0 4px; }
+#menu .lobby .picks .tile { width: 36px; height: 36px; }
+#menu .lobby .picks .name { margin-top: 6px; font-size: 15px; }
+#menu .lobby .picks .cap { font-size: 10.5px; }
+/* Somebody else in the room is already this face. Shown, not hidden — the
+   point is to see the roster is short one seat, not to wonder where a tile
+   went. */
+#menu .lobby .picks .tile.taken {
+  cursor: default;
+  opacity: 0.32;
+  filter: grayscale(1);
+}
+#menu .lobby .picks .tile.taken:hover { border-color: rgba(246, 239, 226, 0.16); transform: skewX(var(--lean)); }
 #menu .lobby .seats { list-style: none; margin: 14px 0 0; padding: 0; }
 #menu .lobby .seats li {
   display: flex; align-items: center; gap: 11px; padding: 7px 0;
@@ -1346,6 +1378,7 @@ export function createMenu(hooks: MenuHooks): Menu {
   lobbySheet.innerHTML = `
     <h2 class="hd">Get a room.</h2>
     <div class="field"><input id="lb-name" maxlength="14" placeholder="Your name"></div>
+    <p class="hint"></p>
     <div class="outside">
       <div class="choices">
         <div class="choice">
@@ -1364,6 +1397,10 @@ export function createMenu(hooks: MenuHooks): Menu {
         <span class="lbl">Room code</span><b class="shown"></b>
         <button data-act="copy">Copy</button>
       </div>
+      <div class="picks">
+        <div class="pick" data-pick="rider"><span class="cap">Driver</span><div class="grid"></div><b class="name"></b></div>
+        <div class="pick" data-pick="ride"><span class="cap">Chair</span><div class="grid"></div><b class="name"></b></div>
+      </div>
     </div>
     <ul class="seats"></ul>
     <p class="note"></p>
@@ -1377,6 +1414,8 @@ export function createMenu(hooks: MenuHooks): Menu {
   lobby.append(lobbySheet);
 
   const nameInput = lobbySheet.querySelector('#lb-name') as HTMLInputElement;
+  const nameHint = lobbySheet.querySelector('.hint') as HTMLElement;
+  nameHint.textContent = 'Put a name in first — it is what everyone else in the room will see.';
   const codeInput = lobbySheet.querySelector('#lb-code') as HTMLInputElement;
   const seatList = lobbySheet.querySelector('.seats') as HTMLElement;
   const note = lobbySheet.querySelector('.note') as HTMLElement;
@@ -1385,6 +1424,61 @@ export function createMenu(hooks: MenuHooks): Menu {
   const shown = lobbySheet.querySelector('.shown') as HTMLElement;
   const act = (name: string): HTMLButtonElement =>
     lobbySheet.querySelector(`[data-act="${name}"]`) as HTMLButtonElement;
+
+  /*
+   * Who you are, chosen from inside the room rather than only on the rail behind
+   * it — the same `Picker` the rail uses, so a change made here is a change made
+   * there too, and the room hears about it the moment it happens (see the two
+   * `choose` handlers in main.ts, which tell the room after they tell the garage).
+   *
+   * Riders are unique per room — the server reassigns a collision rather than
+   * refusing it, so a face already worn by somebody else is disabled here rather
+   * than handed out and quietly taken back.
+   */
+  function buildLobbyPicker(kind: 'rider' | 'ride', picker: Picker): { paint(): void } {
+    const root = lobbySheet.querySelector(`[data-pick="${kind}"]`) as HTMLElement;
+    const grid = root.querySelector('.grid') as HTMLElement;
+    const label = root.querySelector('.name') as HTMLElement;
+
+    const tiles = picker.art.map((art, n) => {
+      const tile = el('button', 'tile') as HTMLButtonElement;
+      tile.type = 'button';
+      const image = el('img') as HTMLImageElement;
+      image.src = art;
+      image.alt = '';
+      image.draggable = false;
+      tile.append(image);
+      tile.addEventListener('click', () => {
+        if (tile.disabled) return;
+        picker.choose(n, n >= picker.index() ? 1 : -1);
+        paintLobby();
+      });
+      grid.append(tile);
+      return tile;
+    });
+
+    return {
+      paint() {
+        const at = picker.index();
+        const view = hooks.room.state();
+        // Only riders are unique; a chair may repeat, so nothing on that row is
+        // ever disabled.
+        const takenByOthers =
+          kind === 'rider' && view ? new Set(view.members.filter((m) => m.id !== view.you).map((m) => m.rider)) : null;
+        tiles.forEach((tile, n) => {
+          tile.classList.toggle('at', n === at);
+          const taken = n !== at && !!takenByOthers?.has(n);
+          tile.classList.toggle('taken', taken);
+          tile.disabled = taken;
+        });
+        const value = picker.label();
+        if (label.textContent !== value) label.textContent = value;
+      },
+    };
+  }
+
+  const riderPicker = buildLobbyPicker('rider', hooks.garage.rider);
+  const ridePicker = buildLobbyPicker('ride', hooks.garage.ride);
 
   let inLobby = false;
 
@@ -1431,11 +1525,21 @@ export function createMenu(hooks: MenuHooks): Menu {
      *
      * Gated rather than validated on submit: the buttons are simply not available
      * until there is a name, which says the same thing without an error message.
+     *
+     * The reason lived only in the shared `.note` line, below both buttons — which
+     * meant it was possible to open the sheet, see two dead-looking controls, and
+     * never once look far enough down to find out why. It is next to the field
+     * itself now, so the thing to fix and the thing telling you to fix it are the
+     * same distance from your eye, and it stays up for as long as it is true rather
+     * than only surfacing after a click that did nothing.
      */
     const named = nameInput.value.trim().length > 0;
+    nameHint.style.display = named ? 'none' : '';
     act('create').disabled = !named;
+    act('create').title = named ? '' : 'Put a name in first';
     codeInput.disabled = !named;
     act('join').disabled = !named || codeInput.value.trim().length !== 4;
+    act('join').title = named ? '' : 'Put a name in first';
     // Only the host may start. One person in a room is a legal race — four rails and
     // you — so there is no minimum beyond that.
     act('start').style.display = view?.isHost ? '' : 'none';
@@ -1443,6 +1547,9 @@ export function createMenu(hooks: MenuHooks): Menu {
 
     const me = view?.members.find((m) => m.id === view.you);
     act('ready').textContent = me?.ready ? 'Not ready' : 'Ready';
+
+    riderPicker.paint();
+    ridePicker.paint();
 
     seatList.innerHTML = '';
     for (const m of view?.members ?? []) {
@@ -1471,12 +1578,11 @@ export function createMenu(hooks: MenuHooks): Menu {
        * The other branch used to read "Create a room and pass the code on, or type
        * one in to join", under two headings that already say "Start one" and "Join
        * one" over the two controls that do it. A sheet that captions its own buttons
-       * is a sheet nobody finishes reading — and the one line that *is* worth having
-       * is the precondition, because a disabled button explains that it is disabled
-       * and never why.
+       * is a sheet nobody finishes reading. The precondition used to live here too —
+       * it is the hint under the name field now, so there is nothing left to say.
        */
       note.className = 'note';
-      note.textContent = named ? '' : 'Put a name in first — it is what the others see.';
+      note.textContent = '';
     } else {
       note.className = 'note';
       const n = view.members.length;

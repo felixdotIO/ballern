@@ -248,6 +248,17 @@ export function createItemPlay(options: {
   let field: readonly Racer[] = [];
   let clock = 0;
 
+  /**
+   * Ranking scratch, reused every step rather than remapped off `racers`.
+   *
+   * `update` runs at the physics rate for a field that never changes size, so a
+   * fresh `racers.map(...)` here was one array a step for a value with the same
+   * shape every time. `order` holds the same ids across calls; only their
+   * ranking moves, which the sort below still does in place.
+   */
+  const order = new Int32Array(size);
+  const rankCompare = (a: number, b: number) => field[b]!.progress - field[a]!.progress;
+
   /** Signed gap in metres: positive means `other` is up the road from `racer`. */
   const gapTo = (racer: Racer, other: Racer) => other.progress - racer.progress;
 
@@ -259,13 +270,13 @@ export function createItemPlay(options: {
    * interesting decisions all live at the other end of the throw. What this does
    * is wait a beat, check there is somebody worth throwing at, and throw.
    */
+  // Nothing at a chair that is already spinning, and nothing at all from a
+  // chair that has parked on the line.
+  const isLive = (r: Racer, self: Racer): boolean => r.id !== self.id && !r.finished && r.stunned <= 0;
+
   function rivalPlay(racer: Racer, slot: Slot): void {
     const kind = slot.held;
     if (!kind) return;
-
-    // Nothing at a chair that is already spinning, and nothing at all from a
-    // chair that has parked on the line.
-    const live = field.filter((r) => r.id !== racer.id && !r.finished && r.stunned <= 0);
 
     switch (kind) {
       case 'puddle':
@@ -285,8 +296,8 @@ export function createItemPlay(options: {
 
       case 'training': {
         // Only useful up the road. Held — not wasted — if this chair is leading.
-        const ahead = live.filter((r) => gapTo(racer, r) > 2);
-        if (!ahead.length) {
+        const hasAhead = field.some((r) => isLive(r, racer) && gapTo(racer, r) > 2);
+        if (!hasAhead) {
           slot.thinking = 1.2;
           return;
         }
@@ -300,11 +311,13 @@ export function createItemPlay(options: {
         // Whichever direction has somebody near enough to be worth it. Forward
         // first, because a chair that only ever throws backwards reads as
         // defensive and the field is meant to be coming after you.
-        const forward = live.some((r) => {
+        const forward = field.some((r) => {
+          if (!isLive(r, racer)) return false;
           const g = gapTo(racer, r);
           return g > 1 && g < 26;
         });
-        const back = live.some((r) => {
+        const back = field.some((r) => {
+          if (!isLive(r, racer)) return false;
           const g = gapTo(racer, r);
           return g < -1 && g > -16;
         });
@@ -398,8 +411,9 @@ export function createItemPlay(options: {
       // counted so the whole field is ranked in one pass — `rivals.placeOf` does
       // the counting version for the player alone, and the two agree because they
       // are reading the same quantity.
-      const order = racers.map((r) => r.id).sort((a, b) => racers[b]!.progress - racers[a]!.progress);
-      for (let i = 0; i < order.length; i++) places[order[i]!] = i + 1;
+      for (let i = 0; i < racers.length; i++) order[i] = racers[i]!.id;
+      order.subarray(0, racers.length).sort(rankCompare);
+      for (let i = 0; i < racers.length; i++) places[order[i]!] = i + 1;
 
       for (const racer of racers) {
         const slot = slots[racer.id];

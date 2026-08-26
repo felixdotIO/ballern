@@ -884,6 +884,7 @@ export function createRivals(
     self: State,
     driven: number,
     humans: readonly PlayerOnTrack[],
+    field: readonly State[],
   ): { gap: number; speed: number; lane: number; faster: boolean } | null {
     let best: { gap: number; speed: number; lane: number; faster: boolean } | null = null;
 
@@ -897,7 +898,11 @@ export function createRivals(
       best = { gap, speed: theirSpeed, lane: theirLane, faster: self.speed > theirSpeed + 0.04 };
     };
 
-    for (const other of racing()) {
+    // The caller's own `racing()` slice, handed in rather than re-taken here: this
+    // runs once per rival per physics step, and re-slicing `states` on every call
+    // was the field re-allocated `active` times over for what is the same field
+    // each time.
+    for (const other of field) {
       if (other === self || other.finished) continue;
       consider(other.progress + other.grid.back, other.lane, other.speed);
     }
@@ -951,20 +956,39 @@ export function createRivals(
     });
   }
 
+  /*
+   * `all` and `objects` are read every physics step and every render frame — see
+   * `main.ts`'s `seatEveryone()` and its rig-animation loop — and `racing()` used
+   * to be re-sliced and re-mapped on every single one of those reads. Neither the
+   * field nor the views and objects it is made of change shape between one
+   * `reseat` and the next, so the mapped arrays are cached here and only rebuilt
+   * when `active` actually moves.
+   */
+  let allCache: readonly Rival[] = [];
+  let objectsCache: readonly THREE.Object3D[] = [];
+
+  function rebuildCaches(): void {
+    const field = racing();
+    allCache = field.map((s) => s.view);
+    objectsCache = field.map((s) => s.object);
+  }
+
   // Everything the caller handed over is racing until somebody says otherwise.
   active = states.length;
   reset();
+  rebuildCaches();
 
   return {
     get all() {
-      return racing().map((s) => s.view);
+      return allCache;
     },
     get objects() {
-      return racing().map((s) => s.object);
+      return objectsCache;
     },
 
     update(h, live, humans, elapsed) {
-      for (const state of racing()) {
+      const field = racing();
+      for (const state of field) {
         if (!live || state.finished) {
           // Still settled every step: a finished rival is parked on the line and a
           // rival on the grid has to be *somewhere*, and both want the same code.
@@ -1107,7 +1131,7 @@ export function createRivals(
          * what the player needs to read. What it must never do is what it used to,
          * which is advance straight through the chair in front.
          */
-        const ahead = nearestAhead(state, driven, humans);
+        const ahead = nearestAhead(state, driven, humans, field);
         if (ahead) {
           const urgency = 1 - ahead.gap / TRAFFIC.sees;
           /*
@@ -1274,6 +1298,7 @@ export function createRivals(
       }
       for (let i = 0; i < active; i++) states[i]!.object.visible = true;
       reset();
+      rebuildCaches();
     },
 
     setDrivers(drivers) {

@@ -881,13 +881,15 @@ export function createClayHud(): ClayHud {
         // quarter turn it is a correction rather than a trick, and printing "12°"
         // on every hop makes the whole readout look like instrumentation noise.
         const turn = trick.degrees >= 60 ? `${Math.round(trick.degrees / 15) * 15}\u00b0 \u00b7 ` : '';
-        // Flips first, because a flip is the thing you *decided* to do — the air
-        // and the spin are mostly what the ramp handed you. And on a bail there is
-        // no figure at all, because the figure is nothing: what the card has to say
-        // is which mistake it was, and there is only one way to bail a flip.
+        // Flips and rolls first, because they are the thing you *decided* to
+        // do — the air and the spin are mostly what the ramp handed you. And on
+        // a bail there is no figure at all, because the figure is nothing:
+        // what the card has to say is which mistake it was, and there is only
+        // one way to bail a trick.
         const flip = trick.flips > 0 ? `${trick.flips > 1 ? `${trick.flips}× ` : ''}FLIP · ` : '';
+        const roll = trick.rolls > 0 ? `${trick.rolls > 1 ? `${trick.rolls}× ` : ''}ROLL · ` : '';
         airScore.textContent = trick.clean
-          ? `${flip}${turn}+${trick.boost.toFixed(1)} m/s`
+          ? `${flip}${roll}${turn}+${trick.boost.toFixed(1)} m/s`
           : 'BAILED';
         setHidden(airScore, false);
         setHidden(air, false);

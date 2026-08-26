@@ -870,6 +870,33 @@ export const DECK_STAIR = { x0: 0, z0: 37.5, x1: 5.0, z1: 42.5, height: 3.1 } as
 export const GARAGE_COLUMNS = { x: 10.625, zs: [11.25, 18.75, 26.25] as const } as const;
 
 /**
+ * The three holes in Ebene 5's blockwork that the lap goes through.
+ *
+ * Here rather than in `garage.ts` — where the walls that carry them are built —
+ * because two things now need to agree about them: the builder, which punches
+ * them, and `DOORS`, which counts a lap by whether you went through them. A
+ * checkpoint at a doorway that has since moved is the worst kind of bug, since
+ * it fails by quietly not counting rather than by looking wrong, so the number
+ * lives once and both read it.
+ *
+ * `front` is the wall across all three back-of-house rooms; `division` is the
+ * one between the cage store and the Waschbox, which is also the line the
+ * ramp-flank wall continues north along.
+ */
+export const GARAGE_OPENINGS = {
+  /** The wall across the front of the three rooms. */
+  frontZ: 37.5,
+  /** Store to Waschbox, and the ramp flank above it. */
+  divisionX: 16.25,
+  /** Into the cage store, off the back lane. */
+  store: { at: 13.0, width: 3.75 },
+  /** Store to Waschbox, at the far corner from the one you came in by. */
+  storeToWash: { at: 40.8, width: 3.0 },
+  /** Out of the Waschbox, pointed at the foot of the Einfahrt. */
+  wash: { at: 19.0, width: 3.0 },
+} as const;
+
+/**
  * Parking bay setting-out. 2.5 × 5.0 bays off a 6.25 m aisle — the German
  * Parkhaus standard.
  *
@@ -1278,6 +1305,138 @@ export const GATES: readonly Gate[] = [
   // The corridor, the whole way, back to the hall.
   { label: 'South Corridor', at: [33.0, 29.4], normal: [1, 0], halfWidth: 1.6 },
 ];
+
+// ---------------------------------------------------------------------------
+// Doors
+// ---------------------------------------------------------------------------
+
+/**
+ * The ways through, and what a lap is counted in.
+ *
+ * ---- why these and not the gates above ------------------------------------
+ *
+ * `GATES` are signposts. Every one of them is a plane of an invented width
+ * hanging in the middle of a room, which is exactly what you want for "the next
+ * named place you are heading for" and exactly what you must not use to decide
+ * whether somebody drove the lap. The building has no opinion about where the
+ * middle of the canteen is, so any number chosen for it is arbitrary, and the
+ * cost of getting it wrong is a driver who took the *other* side of the table —
+ * a legitimate line, often the faster one — and silently did not get a lap.
+ *
+ * A door has no such problem. Its width is not a judgement call, it is a hole in
+ * a wall: pass through the wall at all and you passed through the opening,
+ * because the rest of the wall is solid. So the rule can be strict without ever
+ * being unfair, and nothing about which line you take through a room can cost
+ * you anything.
+ *
+ * ---- and why order is not enforced ----------------------------------------
+ *
+ * Because the building already enforces it, far better than a counter could.
+ * You cannot reach the Waschbox without crossing the cage store, or the foot of
+ * the Einfahrt without leaving the Waschbox, or Ebene 5 at all without going
+ * down the Ausfahrt. The topology *is* the sequence, so re-stating it as an
+ * index would add nothing except the one failure mode worth designing against:
+ * a checkpoint you are stuck on. Every unclaimed door is tested every substep,
+ * so there is no "expected next" to jam, and a door missed on a scruffy lap can
+ * simply be gone back for.
+ *
+ * Distance along the route still has to be there too — see `completeLap` — for
+ * the case doors cannot see: a chair that ends up somewhere it could not have
+ * driven to.
+ */
+export type Door = {
+  label: string;
+  /** Centre of the opening, in plan. */
+  at: readonly [number, number];
+  /** The way you are going when you pass through it, on the lap. */
+  normal: readonly [number, number];
+  /** Half the clear structural width — the hole's own, never an invented one. */
+  halfWidth: number;
+  /** The floor it stands on. Ebene 5's are three metres below everything else. */
+  y?: number;
+};
+
+/**
+ * Look an opening up in the wall that carries it.
+ *
+ * Derived rather than transcribed, so that moving a doorway in `WALLS` moves the
+ * checkpoint with it. A hand-copied coordinate here would be a lap rule that
+ * disagrees with the building the day somebody nudges a partition, and it would
+ * fail by not counting laps rather than by looking wrong — which is the sort of
+ * bug that takes an evening to find.
+ */
+function doorAt(wallId: string, openingAt: number, normal: readonly [number, number], label: string): Door {
+  const wall = WALLS.find((w) => w.id === wallId);
+  if (!wall) throw new Error(`DOORS: no wall "${wallId}"`);
+  const opening = wall.openings?.find((o) => o.at === openingAt);
+  if (!opening) throw new Error(`DOORS: no opening at ${openingAt} in "${wallId}"`);
+  const half = openingWidth(opening.kind, opening.width) / 2;
+  const at: readonly [number, number] = wall.axis === 'x' ? [opening.at, wall.at] : [wall.at, opening.at];
+  return { label, at, normal, halfWidth: half };
+}
+
+/**
+ * A ramp slot, which is a doorway that happens to be the width of a car.
+ *
+ * The level is taken from which end of the ramp is being stood in rather than
+ * passed in, because getting it wrong is invisible: a checkpoint at the foot of
+ * the Einfahrt but recorded at deck height is simply never crossed, and the lap
+ * silently stops counting. Which is precisely the class of bug the doors exist
+ * to end, so it is not one to leave to a caller remembering.
+ */
+function rampAt(ramp: (typeof RAMPS)[number], z: number, normal: readonly [number, number], label: string): Door {
+  const low = Math.abs(z - ramp.zLow) < Math.abs(z - ramp.zHigh);
+  return {
+    label,
+    at: [(ramp.x0 + ramp.x1) / 2, z],
+    normal,
+    halfWidth: (ramp.x1 - ramp.x0) / 2,
+    y: low ? LEVELS.garage : LEVELS.floor,
+  };
+}
+
+/** A hole in Ebene 5's blockwork. See `GARAGE_OPENINGS`. */
+function holeAt(
+  axis: 'x' | 'z',
+  line: number,
+  hole: { at: number; width: number },
+  normal: readonly [number, number],
+  label: string,
+): Door {
+  const at: readonly [number, number] = axis === 'x' ? [hole.at, line] : [line, hole.at];
+  return { label, at, normal, halfWidth: hole.width / 2, y: LEVELS.garage };
+}
+
+const RAMP_DOWN = RAMPS.find((r) => r.id === 'ramp.down')!;
+const RAMP_UP = RAMPS.find((r) => r.id === 'ramp.up')!;
+const GO = GARAGE_OPENINGS;
+
+export const DOORS: readonly Door[] = [
+  // Out of the building through the front, westbound between the standing leaves.
+  doorAt('facade.hall.west', 36.875, [-1, 0], 'Entrance'),
+  // Over the lip of the Ausfahrt. The only way down to Ebene 5 there is, which
+  // is what makes it worth a checkpoint despite not being a door.
+  rampAt(RAMP_DOWN, RAMP_DOWN.zHigh, [0, 1], 'Ausfahrt'),
+  // The three holes across the back of Ebene 5, in the order the lap takes them.
+  holeAt('x', GO.frontZ, GO.store, [0, 1], 'Mieterabteile'),
+  holeAt('z', GO.divisionX, GO.storeToWash, [1, 0], 'Waschbox'),
+  holeAt('x', GO.frontZ, GO.wash, [0, -1], 'Hausmeister'),
+  // And back up. Same argument as the Ausfahrt: there is no other way out.
+  rampAt(RAMP_UP, RAMP_UP.zLow, [0, -1], 'Einfahrt'),
+  // In off the deck through the canteen's fire exit, eastbound.
+  doorAt('facade.west', 5.0, [1, 0], 'Fire Exit'),
+  // Out of the Kantine into the Grossraum through the lower opening.
+  doorAt('part.kitchen|office', 11.0, [1, 0], 'Kantine'),
+  // South out of the Grossraum through the machine room's equipment doors.
+  doorAt('part.office|server', 46.0, [0, 1], 'EDV'),
+  // West out of the EDV into the Besprechungsraum.
+  doorAt('part.board|server', 20.0, [-1, 0], 'Besprechung'),
+  // And south out of it into Flur Süd.
+  doorAt('part.board|corridor.south', 25.0, [0, 1], 'Flur Süd'),
+  // The corridor's east end, back into the hall and onto the pit straight.
+  doorAt('part.corridor.south|hall', 29.375, [1, 0], 'Foyer'),
+];
+
 // ---------------------------------------------------------------------------
 // Queries
 // ---------------------------------------------------------------------------
