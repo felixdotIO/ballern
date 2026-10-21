@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Chair Force One — Join the waitlist</title>
+    <meta
+      name="description"
+      content="An office chair racing game. Race your rivals through the floorplate, pick your driver, pick your chair. Join the waitlist for early access."
+    />
+    <link rel="preload" href="/fonts/bricolage-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/art/key-art.webp" as="image" />
+    <link rel="preload" href="/art/logo.webp" as="image" />
+    <style>
+      :root { color-scheme: light dark; }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        min-height: 100%;
+        background: #241c15;
+        font-family: 'Bricolage Grotesque', 'Helvetica Neue', Helvetica, sans-serif;
+        color: #f6efe2;
+      }
+      @font-face {
+        font-family: 'Bricolage Grotesque';
+        font-weight: 200 800;
+        font-stretch: 75% 100%;
+        font-display: block;
+        src: url('/fonts/bricolage-latin.woff2') format('woff2');
+      }
+
+      main {
+        position: relative;
+        min-height: 100svh;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        justify-content: flex-end;
+        padding: clamp(24px, 7vw, 96px) clamp(24px, 7vw, 96px) clamp(40px, 8vh, 84px);
+        overflow: hidden;
+      }
+      .art {
+        position: absolute;
+        inset: 0;
+        background: url('/art/key-art.webp') center 42% / cover no-repeat;
+      }
+      .scrim {
+        position: absolute;
+        inset: 0;
+        background:
+          linear-gradient(90deg, rgba(20, 14, 9, 0.56) 0%, rgba(20, 14, 9, 0.22) 36%, rgba(20, 14, 9, 0) 60%),
+          linear-gradient(180deg, rgba(20, 14, 9, 0.3) 0%, rgba(20, 14, 9, 0.08) 26%, rgba(20, 14, 9, 0.4) 64%, rgba(20, 14, 9, 0.92) 100%);
+      }
+      .glow {
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(30% 26% at 28% 70%, rgba(238, 82, 33, 0.3), transparent 72%),
+          radial-gradient(44% 36% at 26% 72%, rgba(242, 160, 43, 0.15), transparent 74%);
+      }
+
+      .content {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 22px;
+        max-width: 620px;
+      }
+      .logo {
+        width: min(58vw, 460px);
+        height: auto;
+        filter: drop-shadow(0 12px 34px rgba(12, 8, 4, 0.6));
+      }
+      .flag {
+        width: clamp(104px, 12vw, 160px);
+        height: 15px;
+        background-image:
+          linear-gradient(90deg, #ee5221 0%, rgba(238, 82, 33, 0) 100%),
+          linear-gradient(90deg, #ee5221 0%, rgba(238, 82, 33, 0) 100%),
+          linear-gradient(90deg, #ee5221 0%, rgba(238, 82, 33, 0) 100%);
+        background-size: 100% 3px, 64% 3px, 38% 3px;
+        background-position: 0 0, 0 6px, 0 12px;
+        background-repeat: no-repeat;
+        transform: skewX(-11deg);
+        filter: drop-shadow(0 2px 6px rgba(12, 8, 4, 0.8));
+      }
+      .pitch {
+        margin: 0;
+        font-size: clamp(16px, 2vw, 19px);
+        line-height: 1.5;
+        color: rgba(246, 239, 226, 0.88);
+        text-shadow: 0 1px 10px rgba(12, 8, 4, 0.5);
+      }
+
+      form {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        width: 100%;
+      }
+      input[type='email'] {
+        flex: 1 1 260px;
+        min-width: 0;
+        padding: 14px 16px;
+        border-radius: 8px;
+        border: 1px solid rgba(246, 239, 226, 0.22);
+        background: rgba(20, 14, 9, 0.55);
+        color: #f6efe2;
+        font: inherit;
+        font-size: 15px;
+      }
+      input[type='email']::placeholder { color: rgba(246, 239, 226, 0.45); }
+      input[type='email']:focus {
+        outline: none;
+        border-color: #ee5221;
+      }
+      /* Honeypot — invisible to a person, a one-line trap for a bot that fills in
+         every field it finds. */
+      .hp {
+        position: absolute;
+        left: -9999px;
+        width: 1px;
+        height: 1px;
+        opacity: 0;
+      }
+      button {
+        flex: 0 0 auto;
+        padding: 14px 22px;
+        border-radius: 8px;
+        border: none;
+        background: #ee5221;
+        color: #241c15;
+        font: inherit;
+        font-weight: 700;
+        font-size: 15px;
+        letter-spacing: 0.01em;
+        cursor: pointer;
+        transition: background 160ms ease, transform 160ms ease;
+      }
+      button:hover { background: #f2a02b; }
+      button:active { transform: scale(0.97); }
+      button:disabled { opacity: 0.6; cursor: default; }
+
+      .status {
+        min-height: 1.4em;
+        margin: 0;
+        font-size: 13.5px;
+        letter-spacing: 0.02em;
+        color: rgba(246, 239, 226, 0.75);
+      }
+      .status.error { color: #ff9b7a; }
+      .status.ok { color: #9be39b; }
+
+      .also {
+        margin-top: 4px;
+        font-size: 13px;
+        color: rgba(246, 239, 226, 0.55);
+      }
+      .also a {
+        color: inherit;
+        text-decoration: underline;
+        text-underline-offset: 3px;
+      }
+      .also a:hover { color: #f2a02b; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="art"></div>
+      <div class="scrim"></div>
+      <div class="glow"></div>
+      <div class="content">
+        <img class="logo" src="/art/logo.webp" alt="Chair Force One" />
+        <div class="flag"></div>
+        <p class="pitch">
+          An office chair racing game. Pick your driver, pick your chair, race the
+          floorplate — four rivals, one lap record. Early access is coming; leave
+          your email and we'll tell you the second the doors open.
+        </p>
+        <form id="waitlist-form" novalidate>
+          <input type="text" name="company" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true" />
+          <input
+            type="email"
+            name="email"
+            placeholder="you@wherever.com"
+            autocomplete="email"
+            required
+          />
+          <button type="submit">Join the waitlist</button>
+        </form>
+        <p class="status" id="waitlist-status" role="status"></p>
+        <p class="also">Already in? <a href="/play/">Play now</a></p>
+      </div>
+    </main>
+    <script type="module" src="/src/waitlist/main.ts"></script>
+  </body>
+</html>
