@@ -1,5 +1,7 @@
 /**
- * Chair Force One. The game, and the only one — entry point at `/`.
+ * Chair Force One. The game, and the only one — entry point at `/play/`, with a
+ * waitlist landing page standing at `/` ahead of it for now. See src/waitlist/
+ * for that page; it shares nothing with this file but the key art and the font.
  *
  * This file began as a copy of the shipped `src/main.ts` with the art direction
  * swapped, run from its own page so an experiment could not break the game. It won:
@@ -43,7 +45,7 @@ import { buildDressing } from '../../office/dressing';
 import { buildTrackMarks } from '../../office/trackmarks';
 import { buildCrowd } from '../../office/crowd';
 import { createChair, DRIFT_TIERS, FLOOR_OFFSET, type Input, type Telemetry } from '../../game/chair';
-import { createPhysics } from '../../game/physics';
+import { createPhysics, warmRapier } from '../../game/physics';
 import { createDynamics } from '../../game/dynamics';
 import { createDriver } from '../../game/driver';
 import { bearingTo, createRace } from '../../game/race';
@@ -171,6 +173,11 @@ scene.environmentIntensity = 0.45;
 // ---------------------------------------------------------------------------
 // The building
 // ---------------------------------------------------------------------------
+
+// Started here rather than awaited here: the WASM compile and the kit's
+// megabytes have nothing to do with each other until a collider is actually
+// built, so let them run side by side instead of one after the other.
+warmRapier();
 
 await loadKit();
 

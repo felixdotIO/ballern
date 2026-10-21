@@ -151,7 +151,13 @@ const FRAME_KEY = 'ballern.framecap';
 
 function savedGraphics(): Graphics {
   const value = read(GRAPHICS_KEY);
-  return GRAPHICS.includes(value as Graphics) ? (value as Graphics) : 'high';
+  if (GRAPHICS.includes(value as Graphics)) return value as Graphics;
+  // Nobody has touched the dial yet. 'high' means a 4096² shadow pass from the
+  // first frame on whatever machine happens to open the page — see SHADOW
+  // above — and that is a sharper tax than the resolution ladder in
+  // quality.ts ever pays on its own. 'balanced' is still a fine-looking
+  // office; a player with headroom to spare can step it up themselves.
+  return 'balanced';
 }
 
 function savedCap(): FrameCap {

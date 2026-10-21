@@ -13,9 +13,17 @@ import * as THREE from 'three';
 import type { CollisionVolume } from '../office/collision';
 
 export const FIXED_STEP = 1 / 120;
-/** Never simulate more than this much in one frame — a stall must not turn into
- *  a spiral of catch-up steps that stalls the next frame too. */
-const MAX_CATCHUP = 0.1;
+/**
+ * Never simulate more than this much in one frame — a stall must not turn into
+ * a spiral of catch-up steps that stalls the next frame too.
+ *
+ * At 0.1 s that bound is itself up to 12 fixed steps — rivals, items and ground
+ * probes, all run back-to-back — on the very next frame after a hitch, which
+ * turns one dropped frame into a visibly heavier one right behind it. Halved:
+ * a stall now shows up as the sim briefly running a touch slow rather than as
+ * a second, bigger stutter chasing the first.
+ */
+const MAX_CATCHUP = 0.05;
 
 export type Physics = {
   world: RAPIER.World;
@@ -79,8 +87,26 @@ export type Physics = {
   obstruction(x: number, y: number, z: number, radius: number): string[];
 };
 
+/**
+ * Kicks off the WASM compile without waiting on it.
+ *
+ * `createPhysics` needs the colliders, which need the kit, which is a multi-
+ * megabyte fetch — and until this existed `RAPIER.init()` only ran once that
+ * had fully landed, serialising two downloads that have nothing to do with
+ * each other. Call this as early as possible (before `await loadKit()`) and
+ * `createPhysics` will find the compile already underway, or already done.
+ *
+ * Memoised rather than trusting `RAPIER.init()` itself to dedupe a second
+ * call cheaply — the compat package's own contract only promises it is safe
+ * to call once, awaited, before use.
+ */
+let rapierReady: Promise<void> | null = null;
+export function warmRapier(): Promise<void> {
+  return (rapierReady ??= RAPIER.init());
+}
+
 export async function createPhysics(volumes: readonly CollisionVolume[]): Promise<Physics> {
-  await RAPIER.init();
+  await warmRapier();
 
   const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
   world.timestep = FIXED_STEP;
