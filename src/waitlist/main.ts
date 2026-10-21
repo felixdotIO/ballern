@@ -114,11 +114,63 @@ if (art && hero && window.matchMedia('(pointer: fine)').matches && !window.match
 // The teaser starts muted, as browsers insist; one tap turns the score on and restarts it.
 const teaser = document.getElementById('teaser-video') as HTMLVideoElement | null;
 const sound = document.getElementById('sound');
+const playpause = document.getElementById('playpause');
+
+// Pause and play from the button or by clicking the picture itself.
+function syncPlay() {
+  if (!teaser || !playpause) return;
+  playpause.setAttribute('aria-pressed', String(teaser.paused));
+  playpause.setAttribute('aria-label', teaser.paused ? 'Play the teaser' : 'Pause the teaser');
+  teaser.parentElement?.classList.toggle('paused', teaser.paused);
+}
+if (teaser && playpause) {
+  const toggle = () => (teaser.paused ? void teaser.play() : teaser.pause());
+  playpause.addEventListener('click', toggle);
+  // On touch there is no hover, so the first tap shows the controls and only a tap while they show pauses.
+  const player = teaser.parentElement;
+  let touch = false;
+  let hide = 0;
+  teaser.addEventListener('pointerdown', (event) => { touch = event.pointerType === 'touch'; });
+  teaser.addEventListener('click', () => {
+    if (touch && player && !player.classList.contains('poke') && !teaser.paused) {
+      player.classList.add('poke');
+    } else toggle();
+    if (touch && player) {
+      window.clearTimeout(hide);
+      hide = window.setTimeout(() => player.classList.remove('poke'), 3000);
+    }
+  });
+  teaser.addEventListener('play', syncPlay);
+  teaser.addEventListener('pause', syncPlay);
+  syncPlay();
+}
+
+// The timeline follows the picture, and dragging it moves the picture.
+const seek = document.getElementById('seek') as HTMLInputElement | null;
+const time = document.getElementById('teaser-time');
+if (teaser && seek) {
+  let dragging = false;
+  const clock = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+  const paint = () => {
+    const frac = teaser.duration ? teaser.currentTime / teaser.duration : 0;
+    if (!dragging) seek.value = String(Math.round(frac * 1000));
+    seek.style.setProperty('--p', `${(Number(seek.value) / 10).toFixed(2)}%`);
+    if (time) time.textContent = clock(teaser.currentTime);
+  };
+  const tick = () => { paint(); requestAnimationFrame(tick); };
+  requestAnimationFrame(tick);
+  seek.addEventListener('input', () => {
+    dragging = true;
+    if (teaser.duration) teaser.currentTime = (Number(seek.value) / 1000) * teaser.duration;
+  });
+  seek.addEventListener('change', () => { dragging = false; });
+}
 if (teaser && sound) {
   sound.addEventListener('click', () => {
     const on = teaser.muted;
     teaser.muted = !on;
     if (on) { teaser.currentTime = 0; void teaser.play(); }
+    syncPlay();
     sound.setAttribute('aria-pressed', String(on));
     const label = sound.querySelector('span');
     if (label) label.textContent = on ? 'Sound off' : 'Sound on';

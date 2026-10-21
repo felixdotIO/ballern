@@ -185,7 +185,30 @@
       .teaser .wrap.wide { max-width: 1440px; }
       .player { position: relative; aspect-ratio: 16 / 9; background: #000; border-radius: 20px; box-shadow: 0 40px 120px rgba(0, 0, 0, 0.5); overflow: hidden; }
       .player video { width: 100%; height: 100%; object-fit: cover; }
-      .player .sound { position: absolute; right: 18px; bottom: 18px; display: inline-flex; align-items: center; gap: 10px; padding: 10px 16px 10px 12px; border: 1px solid rgba(246, 239, 226, 0.18); border-radius: 999px; background: rgba(20, 14, 9, 0.6); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); color: var(--paper); font: 600 13px/1 var(--text); cursor: pointer; transition: background 180ms ease, border-color 180ms ease; }
+      .player video { cursor: pointer; }
+      .player .ctrl { position: absolute; inset: auto 0 0 0; display: flex; align-items: center; gap: 12px; padding: 48px 18px 18px; }
+      .player .ctrl::before { content: ''; position: absolute; inset: 0; z-index: -1; background: linear-gradient(180deg, transparent, rgba(12, 8, 4, 0.6)); }
+      .player .ctrl::before, .player .pp, .player .time, .player .seek { opacity: 0; transition: opacity 260ms ease; }
+      .player:hover .ctrl > *, .player:hover .ctrl::before, .player:focus-within .ctrl > *, .player:focus-within .ctrl::before,
+      .player.paused .ctrl > *, .player.paused .ctrl::before, .player.poke .ctrl > *, .player.poke .ctrl::before { opacity: 1; }
+      .player .ctrl { pointer-events: none; }
+      .player .ctrl > * { pointer-events: auto; }
+      .player .time { min-width: 34px; color: var(--paper); font: 600 13px/1 var(--text); font-variant-numeric: tabular-nums; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6); }
+      .player .seek { flex: 1 1 auto; min-width: 0; height: 20px; margin: 0; background: transparent; cursor: pointer; -webkit-appearance: none; appearance: none; --p: 0%; }
+      .player .seek::-webkit-slider-runnable-track { height: 4px; border-radius: 999px; background: linear-gradient(90deg, var(--hot) var(--p), rgba(246, 239, 226, 0.28) var(--p)); transition: height 150ms ease; }
+      .player .seek::-moz-range-track { height: 4px; border-radius: 999px; background: linear-gradient(90deg, var(--hot) var(--p), rgba(246, 239, 226, 0.28) var(--p)); }
+      .player .seek::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; margin-top: -5px; border: none; border-radius: 50%; background: var(--paper); box-shadow: 0 1px 6px rgba(0, 0, 0, 0.5); transform: scale(0); transition: transform 150ms ease; }
+      .player .seek::-moz-range-thumb { width: 14px; height: 14px; border: none; border-radius: 50%; background: var(--paper); transform: scale(0); transition: transform 150ms ease; }
+      .player:hover .seek::-webkit-slider-thumb, .player .seek:focus-visible::-webkit-slider-thumb { transform: scale(1); }
+      .player:hover .seek::-moz-range-thumb, .player .seek:focus-visible::-moz-range-thumb { transform: scale(1); }
+      .player .seek:focus-visible { outline: none; }
+      @media (max-width: 640px) { .player .time { display: none; } .player .sound span { display: none; } .player .sound { padding: 10px; } }
+      .player .sound.pp { padding: 10px; }
+      .player .sound.pp svg path { fill: currentColor; stroke: none; }
+      .player .pp .play { display: none; }
+      .player .pp[aria-pressed='true'] .play { display: inline; }
+      .player .pp[aria-pressed='true'] .pause { display: none; }
+      .player .sound { display: inline-flex; align-items: center; gap: 10px; padding: 10px 16px 10px 12px; border: 1px solid rgba(246, 239, 226, 0.18); border-radius: 999px; background: rgba(20, 14, 9, 0.6); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); color: var(--paper); font: 600 13px/1 var(--text); cursor: pointer; transition: background 180ms ease, border-color 180ms ease; }
       .player .sound:hover { background: rgba(238, 82, 33, 0.85); border-color: transparent; }
       .player .sound svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
       .player .sound svg path:first-child { fill: currentColor; }
@@ -304,15 +327,22 @@
       <section class="teaser" id="teaser">
         <div class="wrap wide">
           <div class="head">
-            <h2 class="display">Twenty seconds. <em>One mug.</em></h2>
+            <h2 class="display">Friday, 5:01 pm. <em>The floor is yours.</em></h2>
             <p class="lead">The concept is simple: when the office empties on a Friday, seven colleagues race their office chairs through it. <b>Three laps. One mug. Everything else is fair game.</b></p>
           </div>
           <div class="player">
             <video id="teaser-video" src="/media/teaser.mp4" poster="/media/teaser-poster.jpg" autoplay muted loop playsinline preload="metadata"></video>
+            <div class="ctrl">
+            <button class="sound pp" id="playpause" type="button" aria-label="Pause the teaser" aria-pressed="false">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path class="pause" d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/><path class="play" d="M8 5.5v13l10.5-6.5z"/></svg>
+            </button>
+            <span class="time" id="teaser-time">0:00</span>
+            <input class="seek" id="seek" type="range" min="0" max="1000" step="1" value="0" aria-label="Teaser position" />
             <button class="sound" id="sound" type="button" aria-pressed="false">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z"/><path class="on" d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12"/><path class="off" d="M16.5 9.5l5 5M21.5 9.5l-5 5"/></svg>
               <span>Sound on</span>
             </button>
+            </div>
           </div>
         </div>
       </section>
@@ -374,7 +404,7 @@
               <div>
                 <span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M7 6.5h.01M10 6.5h.01"/><path d="M9 14l2 2 4-4"/></svg></span>
                 <h4>No install. No IT ticket.</h4>
-                <p>It runs in a browser tab. No admin rights, no gaming PC, no asking anyone for permission.</p>
+                <p>It runs in a browser tab. No admin rights, no gaming PC. And if somebody walks past your screen, close it. You were checking the train times.</p>
               </div>
               <div>
                 <span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M9 2h6"/></svg></span>
@@ -382,9 +412,9 @@
                 <p>A race is three laps and about five minutes. Lunch break, slow Friday, the bit before the all-hands.</p>
               </div>
               <div>
-                <span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 20V8a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9z"/><path d="M14 13l4 4M18 13l-4 4"/></svg></span>
-                <h4>It’s just a tab.</h4>
-                <p>Somebody walks past your screen? Close it. You were checking the train times.</p>
+                <span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 8h10a4 4 0 0 1 4 4v3a2.5 2.5 0 0 1-4.6 1.4L15 14H9l-1.4 2.4A2.5 2.5 0 0 1 3 15v-3a4 4 0 0 1 4-4z"/><path d="M8 10.5v3M6.5 12h3M15.5 11h.01M17.5 13h.01"/></svg></span>
+                <h4>No gamer required.</h4>
+                <p>Steer, drift, throw what you picked up. That is every control there is. Somebody from Accounting who has never held a controller can win, and probably will.</p>
               </div>
               <div>
                 <span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/><path d="M10 8.5l-1 5M14 8.5l-1 5M8.5 10h7M8 12h7"/></svg></span>
