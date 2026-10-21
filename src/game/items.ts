@@ -24,9 +24,11 @@
  *   Training       a mandatory security-awareness module. Homes on the next chair
  *                  ahead and stops it dead while it completes the training.
  *   Coffee         dropped behind. Grip goes; so does the line you were on.
- *   Quick Sync     a calendar invite that skitters across the carpet and
- *                  ricochets off the walls until it finds somebody to pull into a
- *                  meeting.
+ *   Der Pömpel     a plunger out of the caretaker's cupboard, thrown at a
+ *                  colleague. Used to be a calendar invite that skittered across
+ *                  the carpet — see the note on `poempel()` in itemArt.ts for why
+ *                  that card got replaced and why the name on this list didn't
+ *                  change along with it.
  *
  * The names on screen are English and the building they are found in is not: the
  * doors are still signed *Damen*, *Herren* and *6.01 Großraum*, because that is

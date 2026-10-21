@@ -41,7 +41,7 @@ import { BEAT, formatTime, type Race } from '../../game/race';
 import { GATES } from '../../office/plan';
 import { createMinimap, MINIMAP_CSS } from '../../ui/minimap';
 import { createGauge } from './gauge';
-import { createOdometer, el, FAMILY, installLook } from './look';
+import { createOdometer, el, FAMILY, GAUGE_FAMILY, installLook } from './look';
 
 /**
  * Drift charge that fills the inner ring, in the units `chair.driftCharge()` returns.
@@ -84,6 +84,44 @@ const CSS = `
 #hud .br { bottom: 30px; right: 34px; flex-direction: column; align-items: flex-end; }
 #hud .bc { bottom: 40px; left: 50%; transform: translateX(-50%); flex-direction: column; align-items: center; gap: 12px; }
 
+/*
+ * Below 480 px the two bottom corners are not two corners any more — the gauge
+ * alone is 172 px and the plan panel starts past the middle of the frame, so a
+ * narrow window puts the plan's left edge inside the gauge's right one. The
+ * two were never designed to share this little width side by side, only to
+ * sit in it stacked: the plan moves to the gauge's own corner and floats above
+ * it instead, both scaled down a notch so the stack still clears the wayfinder
+ * centred beneath them.
+ */
+@media (max-width: 480px) {
+  #hud .bl { transform: scale(0.82); transform-origin: bottom left; }
+  #hud .br {
+    right: auto;
+    left: 30px;
+    bottom: 202px;
+    align-items: flex-start;
+    transform: scale(0.82);
+    transform-origin: bottom left;
+  }
+}
+
+/*
+ * The top corners get the same problem once the lap plaque and the clock are
+ * both lit panels rather than bare type: the clock alone is 253 px wide now —
+ * Orbitron's digits sit in a full 1ch slot each, see the note on .panel .num
+ * in look.ts — which is already most of a 375 px window, and the two were
+ * never going to share a row below that width any more than the gauge and
+ * the plan were. Same fix as the bottom corners: the second one moves into
+ * the first one's own corner and stacks under it instead of beside it.
+ */
+@media (max-width: 480px) {
+  #hud .tr {
+    top: 122px;
+    right: auto;
+    left: 34px;
+  }
+}
+
 /* -- lap ------------------------------------------------------------------- */
 
 /*
@@ -94,7 +132,7 @@ const CSS = `
  * it takes to separate them, and that fraction is the whole budget this thing
  * has. The rule is the cheapest possible full stop.
  */
-#hud .lap { display: flex; align-items: stretch; gap: 18px; }
+#hud .lap { display: flex; align-items: stretch; gap: 18px; padding: 12px 20px; }
 #hud .lap .cell + .cell {
   padding-left: 18px;
   border-left: 1px solid rgba(246, 239, 226, 0.18);
@@ -128,7 +166,7 @@ const CSS = `
 
 /* -- clock ----------------------------------------------------------------- */
 
-#hud .clock { text-align: right; }
+#hud .clock { text-align: right; padding: 12px 20px; }
 #hud .clock .total { font-size: 46px; line-height: 0.94; font-variation-settings: 'opsz' 96; letter-spacing: -0.025em; }
 #hud .clock .rows { margin-top: 8px; display: flex; flex-direction: column; gap: 3px; }
 #hud .clock .rows div { display: flex; align-items: baseline; justify-content: flex-end; gap: 10px; }
@@ -138,12 +176,12 @@ const CSS = `
 
 /* -- wayfinder ------------------------------------------------------------- */
 
-#hud .sign { display: flex; align-items: center; gap: 10px; }
-#hud .sign svg { width: 26px; height: 26px; display: block; flex: none; filter: drop-shadow(0 2px 6px rgba(20, 14, 8, 0.55)); }
+#hud .sign { display: flex; align-items: center; gap: 8px; }
+#hud .sign svg { width: 20px; height: 20px; display: block; flex: none; filter: drop-shadow(0 2px 6px rgba(20, 14, 8, 0.55)); }
 /* No transition on the rotation: it tracks a real bearing, and easing a bearing makes
    it point at where you were rather than at where the gate is. */
 #hud .sign .dial { transform-origin: 50% 50%; }
-#hud .sign .name { font-size: 19px; letter-spacing: -0.005em; }
+#hud .sign .name { font-size: 16px; letter-spacing: -0.005em; }
 
 #hud .warn {
   color: var(--pink);
@@ -180,6 +218,17 @@ const CSS = `
      on whatever frame the animation happened to start. */
 }
 #hud .count-in.go { color: var(--amber); font-size: 104px; letter-spacing: -0.03em; }
+
+/* The countdown's own 13vh was tuned against a bare top-left/top-right pair
+   that topped out around 100px tall; the stacked plaque above now runs to
+   ~245px regardless of viewport height, so below 480px this follows it in
+   fixed px instead. Placed after the base rule rather than with the other
+   ≤480px overrides above: equal specificity means source order decides, and
+   a media-query override sitting *before* the rule it means to beat loses to
+   it regardless of which one the browser thinks it matched. */
+@media (max-width: 480px) {
+  #hud .centre { padding-top: 264px; }
+}
 
 #hud .split .name { font-size: 15px; color: var(--paper-2); }
 #hud .split .time { display: block; margin-top: 2px; font-size: 52px; line-height: 1; font-variation-settings: 'opsz' 96; letter-spacing: -0.03em; }
@@ -429,15 +478,56 @@ ${MINIMAP_CSS}
  * paper on a dark ground. The route stays signal green and the marker stays the red
  * that every *Sie sind hier* dot in Germany is printed in.
  */
-#hud .map { padding: 12px 13px 10px; display: flex; flex-direction: column; align-items: center; gap: 9px; }
-#hud .map .label { font-size: 12.5px; font-weight: 600; color: var(--paper-2); }
+/*
+ * The plan as a security monitor rather than a glass plaque — the generic
+ * .panel sheen read as the same translucent card the lap plaque and the
+ * clock already are, and a plan is not a readout, it is a feed somebody is
+ * watching. Dark terminal screen, a green edge-glow in the colour the route
+ * and the building's own running-man signs already share, and the corner
+ * brackets minimap.ts built in — all of it beats .panel's generic bevel on
+ * specificity (#hud .map carries an id), so no !important anywhere here.
+ */
+#hud .map {
+  padding: 12px 13px 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 9px;
+  background: linear-gradient(165deg, #241c15 0%, #15100b 100%);
+  border-color: rgba(0, 0, 0, 0.5) rgba(255, 255, 255, 0.1) rgba(255, 255, 255, 0.1) rgba(0, 0, 0, 0.5);
+  box-shadow:
+    0 18px 44px -18px rgba(16, 10, 5, 0.9),
+    inset 0 0 0 1px rgba(111, 174, 98, 0.4),
+    inset 0 0 16px rgba(111, 174, 98, 0.22);
+}
+/* The glass sheen .panel::before draws is the wrong material for a terminal
+   screen rather than just a redundant one here — a monitor this close to the
+   eye shows its phosphor, not a reflection off its own glass. */
+#hud .map::before { display: none; }
+#hud .map .bracket { border-color: var(--green); }
+#hud .map .label {
+  font-family: ${GAUGE_FAMILY};
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--green);
+}
 #hud .map .sheet { display: none; }
 #hud .map .sheet.on { display: block; }
 #hud .map .room, #hud .map .deck { fill: none; stroke: rgba(246, 239, 226, 0.3); stroke-width: 0.5; }
 #hud .map .deck { stroke-dasharray: 1.4 1; }
 #hud .map .core { fill: rgba(246, 239, 226, 0.16); stroke: none; }
 #hud .map .ramp { fill: none; stroke: rgba(246, 239, 226, 0.34); stroke-width: 0.45; stroke-dasharray: 0.9 0.9; }
-#hud .map .route { fill: none; stroke: var(--green); stroke-width: 1.6; opacity: 1; }
+/* A touch of phosphor on the route itself — the one line on this screen that
+   is actually live data, so it is the one line allowed to glow. */
+#hud .map .route {
+  fill: none;
+  stroke: var(--green);
+  stroke-width: 1.6;
+  opacity: 1;
+  filter: drop-shadow(0 0 1.5px rgba(111, 174, 98, 0.9));
+}
 #hud .map .finish { stroke: var(--paper); stroke-width: 1; opacity: 0.8; }
 #hud .map .target { fill: none; stroke: var(--amber); stroke-width: 1; }
 #hud .map .here { fill: var(--pink); stroke: none; }
@@ -544,7 +634,7 @@ export function createClayHud(): ClayHud {
   const placeOf = el('i', 'of num');
   const place = cell('Pos', placeValue, placeOf, 'place');
 
-  const lap = el('div', 'lap float');
+  const lap = el('div', 'lap float panel');
   lap.append(cell('Lap', lapValue, lapOf), place);
 
   const tl = el('div', 'zone tl');
@@ -571,7 +661,7 @@ export function createClayHud(): ClayHud {
 
   const rows = el('div', 'rows');
   rows.append(lastRow, bestRow);
-  const clock = el('div', 'clock float');
+  const clock = el('div', 'clock float panel');
   clock.append(total.element, rows);
 
   const tr = el('div', 'zone tr');

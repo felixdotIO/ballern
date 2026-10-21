@@ -25,6 +25,14 @@
  *     opsz 14 it is a quiet interface face, and it carries **real tabular figures**.
  *     That last detail deleted two hacks — a hand-built fixed-pitch digit slot and a
  *     second typeface kept only because it was monospaced.
+ *
+ *     A second family is back, deliberately, for exactly the numerals this one used
+ *     to carry — see GAUGE_FAMILY below. The panels those numerals sit in stopped
+ *     being the exception rule 1 describes: they are instruments now, lit and
+ *     bevelled, and Bricolage's own figures read as the interface face dressed up
+ *     rather than as a gauge. Orbitron is nobody's idea of an interface font — no
+ *     lowercase worth the name, no warmth — which is the one thing a speedometer's
+ *     digits are allowed to be that a sentence never is.
  *  3. **One accent does the pointing.** Amber, off the sun through the west glazing,
  *     marks selection and the best lap and nothing else. Pink — the checkpoint
  *     donuts, the one saturated thing in the building — is reserved for energy: the
@@ -75,6 +83,14 @@
 /** The only family. Weight, width and optical size are all live axes. */
 export const FAMILY = `'Bricolage Grotesque', 'Helvetica Neue', Helvetica, Arial, sans-serif`;
 
+/**
+ * The gauge face. Every figure the HUD puts in a lit instrument reads in this —
+ * the lap and position plaque, the clock, the training card's own numbers — see
+ * the note on .num below. Static weight, because Orbitron ships one: there is no
+ * variable axis here to do the opsz/weight trick FAMILY does.
+ */
+export const GAUGE_FAMILY = `'Orbitron', 'Bricolage Grotesque', 'Helvetica Neue', Helvetica, sans-serif`;
+
 const CSS = `
 @font-face {
   font-family: 'Bricolage Grotesque';
@@ -83,6 +99,13 @@ const CSS = `
   font-stretch: 75% 100%;
   font-display: block;
   src: url('/fonts/bricolage-latin.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Orbitron';
+  font-style: normal;
+  font-weight: 700 900;
+  font-display: block;
+  src: url('/fonts/orbitron-latin.woff2') format('woff2');
 }
 
 :root {
@@ -161,6 +184,36 @@ const CSS = `
   font-feature-settings: 'tnum' 1;
   letter-spacing: -0.01em;
 }
+/*
+ * Except in a lit instrument. The lap/pos plaque, the clock and the training
+ * card's own numbers sit on a .panel now rather than floating over the room —
+ * see the note above FAMILY — and Orbitron is what reads as the gauge that
+ * plaque is pretending to be. Scoped to .panel .num rather than redefining
+ * .num itself: the wayfinder's split time and the jump's air score are still
+ * .float type with nothing under them, and rule 1 in the file doc still holds
+ * for those — a number only changes face when the ground under it does.
+ */
+.panel .num {
+  font-family: ${GAUGE_FAMILY};
+  font-weight: 800;
+  font-variation-settings: normal;
+  letter-spacing: 0.01em;
+}
+/*
+ * Orbitron has no tabular-figures table for font-variant-numeric to turn on —
+ * measured, its "1" is 18px against a "0" at 38px (46px set) — so a clock
+ * ticking through it was visibly changing width every other frame, the one
+ * thing createOdometer's own per-character write exists to avoid (see the
+ * note on it in this file). Each digit cell gets a fixed slot instead; the
+ * colon and the point are untouched; 1ch is exactly 0's own advance by the
+ * unit's definition, and 0 is tied for the widest digit this face draws, so
+ * every other digit now sits centred in a slot it already fit inside.
+ */
+.panel .num .d {
+  display: inline-block;
+  width: 1ch;
+  text-align: center;
+}
 
 /* -- the two grounds ------------------------------------------------------- */
 
@@ -168,8 +221,19 @@ const CSS = `
  * A panel, for the two things that are tables. Warm dark rather than paper: the
  * scene it lies over is bright and warm in the middle of the frame, and a light card
  * there competes with the room while a dark one lets the room glow past it.
+ *
+ * ---- the frame it sits in --------------------------------------------------
+ *
+ * A rim and a sheen rather than the flat edge this had: the plan and the training
+ * card are the two places the HUD puts an actual object in front of the player
+ * rather than type over the room, and an object reads as one when it has a lit
+ * side and a dark side the way the item token and the gauge's bezel already do.
+ * The inset highlight along the top is the same light; the rim is a two-tone
+ * border rather than a single rgba so the bevel survives on every panel colour
+ * this sits over, light room or dark.
  */
 .panel {
+  position: relative;
   background: rgba(28, 21, 15, 0.84);
   /* Blurred, and only here. At 84% opacity the room reads through the panel as mud —
      the chair's silhouette showing faintly behind a column of lap times. Ten pixels of
@@ -178,8 +242,26 @@ const CSS = `
   backdrop-filter: blur(11px) saturate(106%);
   -webkit-backdrop-filter: blur(11px) saturate(106%);
   border-radius: var(--r);
-  box-shadow: 0 18px 44px -18px rgba(16, 10, 5, 0.9);
+  border: 1px solid;
+  border-color: rgba(255, 255, 255, 0.24) rgba(0, 0, 0, 0.3) rgba(0, 0, 0, 0.3) rgba(255, 255, 255, 0.24);
+  box-shadow:
+    0 18px 44px -18px rgba(16, 10, 5, 0.9),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    inset 0 -14px 20px -10px rgba(0, 0, 0, 0.35);
   color: var(--paper);
+}
+/* The sheen: a diagonal wash of light top-left to nothing by centre, the glass
+   a screen this size would actually throw back. Its own element rather than a
+   second background layer because a panel's content (the plan's svg, the
+   module's header strip) needs to sit visually above the base fill but under
+   this — one more background on .panel itself would sit under both. */
+.panel::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0) 45%);
+  pointer-events: none;
 }
 
 /* And type that floats, with the room showing through behind it. */
@@ -237,7 +319,10 @@ export function createOdometer(className?: string): Odometer {
 
       if (text.length !== shown.length) {
         cells = [...text].map((ch) => {
-          const cell = el('span');
+          // Marked so a digit font that is not actually tabular — Orbitron, in
+          // .panel .num — can be given a fixed slot without also stretching the
+          // colon and the point out to a digit's width.
+          const cell = el('span', /[0-9]/.test(ch) ? 'd' : undefined);
           cell.textContent = ch;
           return cell;
         });

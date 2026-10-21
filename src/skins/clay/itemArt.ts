@@ -333,15 +333,6 @@ export function binder(): THREE.Group {
 }
 
 /**
- * “Quick Sync?” — the invite, as a card that skitters.
- *
- * It has to read as a *card* from above, because that is the only angle it is ever
- * seen from once it is on the carpet. What lifts it off being a white rectangle
- * with a stripe is the furniture of an actual meeting invite: a coloured header
- * with a **clock** on it, a **time block** under the title, and one **accept
- * button** — and the joke is that there is only one and it is not "no".
- */
-/**
  * The Pömpel.
  *
  * ---- why it replaced the meeting invite -----------------------------------

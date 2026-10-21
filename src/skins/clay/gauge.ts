@@ -8,7 +8,19 @@
  * does not need a bezel, four screws and three coloured bands to be read. It needs
  * one number and one arc. Everything else was a costume.
  *
- * So this is the arc and the number, floating, with no panel at all:
+ * A fourth version puts the bezel back. That old argument was against a costume —
+ * four fake screws imitating an instrument that was never there — and holds against
+ * one exactly as well as it did. It does not hold against the rest of the HUD
+ * getting a lit, bevelled object in every other corner (the item token, the lap
+ * plaque, the training card's seal) and this one instrument staying the one flat
+ * thing among them, which now reads as unfinished rather than as restrained. The
+ * ring is a fixed brass rim rather than a computed one — unlike the item token,
+ * which recolours per pickup, a speedometer is always this instrument and never
+ * another one, so there is nothing here for a shades() helper to earn its keep
+ * computing. Same formula by eye as the seal's in itemHud.ts: a lit radial fill,
+ * a two-tone bevel border, one soft highlight ellipse.
+ *
+ * So this is the arc and the number, now in a glass dial rather than floating:
  *
  *  - A 260° **track** in paper at low strength, with the part of the scale the chair
  *    cannot reach on the throttle alone left visibly emptier. That is the airspeed
@@ -30,7 +42,7 @@
  * the only way past it.
  */
 
-import { createOdometer, el } from './look';
+import { createOdometer, el, GAUGE_FAMILY } from './look';
 
 /** Top of the scale, km/h. The solver's ceiling is 8.6 m/s ≈ 31. */
 const FULL = 32;
@@ -77,24 +89,57 @@ function ticks(): string {
 }
 
 const CSS = `
-.spd {
+/*
+ * The bezel: brass rim, glass face. Sized proportionally to the dial itself —
+ * see .spd below — and centred over it, the same margin the old radial
+ * darkening used to claim for "the room falling away behind the instrument",
+ * which this replaces rather than adds to; a glass face in front of a lit rim
+ * already does that job, and doing it twice just muddies the rim's own edge.
+ *
+ * Shrunk a notch from the pass that introduced it: at 224px the bezel was
+ * bigger on screen than the lap plaque and the clock *combined*, which is the
+ * wrong instrument to be the loudest thing in the corner of a racing HUD.
+ */
+.bezel {
   position: relative;
-  width: 172px;
-  height: 172px;
+  width: 182px;
+  height: 182px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 32% 24%, #f6d9a0, #c6924a 55%, #6b4a1e 100%);
+  border: 5px solid;
+  border-color: #ffe9bd #7a5220 #7a5220 #ffe9bd;
+  box-shadow:
+    0 10px 23px rgba(20, 14, 8, 0.6),
+    inset 0 3px 4px rgba(255, 255, 255, 0.55),
+    inset 0 -10px 15px rgba(0, 0, 0, 0.4);
   display: grid;
   place-items: center;
 }
-/* The room falling away behind the instrument, so paper-coloured type holds over a
-   sunlit carpet without a card under it. */
-.spd::before {
+/* The glass: a diagonal wash over the whole face, on top of the needle and the
+   number the way a real crystal's glare sits in front of what it covers rather
+   than behind it — the one place in this HUD a highlight has to paint last. */
+.bezel::after {
   content: '';
   position: absolute;
-  inset: -26px;
-  border-radius: 50%;
-  background: radial-gradient(closest-side, rgba(18, 12, 6, 0.58), rgba(18, 12, 6, 0) 80%);
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0) 40%);
   pointer-events: none;
 }
-.spd svg { position: absolute; inset: 0; width: 172px; height: 172px; overflow: visible; }
+.spd {
+  position: relative;
+  width: 140px;
+  height: 140px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 38% 30%, rgba(255, 255, 255, 0.08), rgba(0, 0, 0, 0) 45%), #15100b;
+  box-shadow: inset 0 4px 10px rgba(0, 0, 0, 0.55);
+  display: grid;
+  place-items: center;
+}
+/* The svg's own coordinate space is still 172 units — R_TRACK, R_BOOST and
+   every arcPath() call below are unaffected by this; only the box the browser
+   scales that drawing into got smaller. */
+.spd svg { position: absolute; inset: 0; width: 140px; height: 140px; overflow: visible; }
 
 .spd .bed,
 .spd .track,
@@ -128,17 +173,30 @@ const CSS = `
 .spd .ticks line { stroke: rgba(246, 239, 226, 0.55); stroke-width: 2; stroke-linecap: round; }
 
 .spd .read { position: relative; text-align: center; line-height: 1; pointer-events: none; }
+/*
+ * Orbitron now, matching the other lit instruments — see the note on
+ * .panel .num in look.ts for why a gauge gets the second family at all. This
+ * one is not inside a .panel, so it sets GAUGE_FAMILY directly rather than
+ * inheriting the descendant rule; same reason its digit cells get their own
+ * .d fix below rather than relying on .panel .num .d to reach them.
+ */
 .spd .read b {
   display: block;
-  font-size: 56px;
-  font-variation-settings: 'opsz' 96;
-  letter-spacing: -0.03em;
+  font-family: ${GAUGE_FAMILY};
+  font-weight: 800;
+  font-size: 42px;
+  letter-spacing: 0.01em;
+}
+.spd .read b .d {
+  display: inline-block;
+  width: 1ch;
+  text-align: center;
 }
 .spd .read i {
   display: block;
-  margin-top: 5px;
+  margin-top: 4px;
   font-style: normal;
-  font-size: 12.5px;
+  font-size: 10px;
   color: var(--paper-2);
   text-shadow: 0 1px 3px rgba(20, 14, 8, 0.6);
 }
@@ -166,7 +224,9 @@ export function createGauge(): Gauge {
   const trackLen = arcLength(R_TRACK, SPAN);
   const boostLen = arcLength(R_BOOST, SPAN);
 
+  const bezel = el('div', 'bezel');
   const element = el('div', 'spd float');
+  bezel.append(element);
   element.innerHTML = `
 <svg viewBox="0 0 172 172" aria-hidden="true">
   <path class="bed" d="${arcPath(START, START + SPAN, R_TRACK)}" />
@@ -208,7 +268,7 @@ export function createGauge(): Gauge {
   let shownNumber = -1;
 
   return {
-    element,
+    element: bezel,
 
     update(kmh, drift) {
       const filled = Math.round(arcLength(R_TRACK, at(kmh) - START) * 4) / 4;

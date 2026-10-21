@@ -204,6 +204,15 @@ export function createMinimap(): Minimap {
   caption.className = 'label';
   element.append(caption);
   for (const sheet of sheets) element.append(sheet.element);
+  // Four corner marks, the way a security monitor frames its own feed rather
+  // than just being a rectangle that happens to show one. Structure lives
+  // here; what colour they're drawn in is a skin's call — see the reprint in
+  // hud.ts.
+  for (const corner of ['tl', 'tr', 'bl', 'br']) {
+    const bracket = document.createElement('span');
+    bracket.className = `bracket ${corner}`;
+    element.append(bracket);
+  }
 
   let showing = -1;
   /** The gate marker last written, so a target that has not moved since the
@@ -260,8 +269,23 @@ export function createMinimap(): Minimap {
 
 /** The plan's own styles, folded into the HUD's sheet. */
 export const MINIMAP_CSS = `
-#hud .map { padding: 8px 9px 7px; gap: 6px; align-items: center; }
+#hud .map { position: relative; padding: 8px 9px 7px; gap: 6px; align-items: center; }
 #hud .map svg { display: block; overflow: visible; }
+
+/* The corner marks. A viewfinder's framing, not a border — each is an L, not
+   a full rectangle, so the plate's own edge still does the job of containing
+   it and these only have to say "this is a feed, not a page". */
+#hud .map .bracket {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--signal);
+  pointer-events: none;
+}
+#hud .map .bracket.tl { top: 4px; left: 4px; border-right: none; border-bottom: none; }
+#hud .map .bracket.tr { top: 4px; right: 4px; border-left: none; border-bottom: none; }
+#hud .map .bracket.bl { bottom: 4px; left: 4px; border-right: none; border-top: none; }
+#hud .map .bracket.br { bottom: 4px; right: 4px; border-left: none; border-top: none; }
 
 /* One sheet at a time. Both are built once and neither is ever rebuilt; the
    swap is a class, so changing level costs nothing at all. */

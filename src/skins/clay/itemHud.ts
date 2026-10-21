@@ -59,6 +59,29 @@ import { el, FAMILY, installLook } from './look';
  *    detail; the binder has two rings and an exclamation and no spine label. What
  *    got cut is the stuff that turns to mud.
  */
+/**
+ * The five CSS custom properties the gloss token's gradient and bevel ring
+ * read, computed once per pickup from the item's own colour rather than kept
+ * as five more authored hexes — a sixth item should not need a design pass on
+ * `itemHud.ts` just to get a sphere that matches its own `ITEMS` colour.
+ */
+function shades(hex: number): Record<'--hi' | '--mid' | '--lo' | '--rim-hi' | '--rim-lo', string> {
+  const r = (hex >> 16) & 0xff;
+  const g = (hex >> 8) & 0xff;
+  const b = hex & 0xff;
+  const mix = (t: number, towards: number) => {
+    const m = (c: number) => Math.round(c + (towards - c) * t);
+    return `rgb(${m(r)}, ${m(g)}, ${m(b)})`;
+  };
+  return {
+    '--hi': mix(0.65, 255),
+    '--mid': `rgb(${r}, ${g}, ${b})`,
+    '--lo': mix(0.55, 0),
+    '--rim-hi': mix(0.35, 255),
+    '--rim-lo': mix(0.6, 0),
+  };
+}
+
 const ICONS: Record<ItemKind, string> = {
   /* A bottle with a carry handle and a horn out of the top right. */
   extinguisher: `
@@ -108,11 +131,18 @@ const ICONS: Record<ItemKind, string> = {
       <path d="M6.2 2.4h4.9l-.9 7.3a1.6 1.6 0 0 1-1.6 1.45h-.15A1.6 1.6 0 0 1 6.85 9.7Z"/>
     </g>`,
 
-  /* A landscape calendar with the hour already blocked out. */
+  /*
+   * A plunger: round handle, shaft, flared cup — the actual object, not the
+   * calendar invite this slot used to be. The glyph was never repainted when
+   * the item's fiction turned from "Quick Sync" into Der Pömpel, so the one
+   * item that is simply a thing you hit somebody with was showing up in the
+   * slot as a meeting. The cup is the half that has to survive down to 22 px —
+   * see `itemArt.ts` for the same object modelled in three dimensions.
+   */
   huddle: `
-    <path d="M7.3 1.9a1.05 1.05 0 0 1 1.05 1.05V5.1H6.25V2.95A1.05 1.05 0 0 1 7.3 1.9Zm9.4 0a1.05 1.05 0 0 1 1.05 1.05V5.1h-2.1V2.95A1.05 1.05 0 0 1 16.7 1.9Z"/>
-    <path fill-rule="evenodd" d="M3.5 4.5h17a1.85 1.85 0 0 1 1.85 1.85v13.3A1.85 1.85 0 0 1 20.5 21.5h-17a1.85 1.85 0 0 1-1.85-1.85V6.35A1.85 1.85 0 0 1 3.5 4.5Zm.6 5.4v9.75h15.8V9.9H4.1Z"/>
-    <path d="M6.1 12.2h6.4v2.7H6.1Z"/>`,
+    <path d="M10.9 1.0h2.2v9.6h-2.2Z"/>
+    <path d="M8.6 2.1a3.4 3.4 0 1 1 6.8 0 3.4 3.4 0 0 1-6.8 0Z"/>
+    <path fill-rule="evenodd" d="M12 10.6c3.9 0 7.9.95 7.9 2.85 0 4.55-3.9 9.55-7.9 9.55s-7.9-5-7.9-9.55c0-1.9 4-2.85 7.9-2.85Zm0 2.3c-2.9 0-5.1.55-5.75 1.05.55 3.35 3.15 6.9 5.75 6.9s5.2-3.55 5.75-6.9c-.65-.5-2.85-1.05-5.75-1.05Z"/>`,
 };
 
 const CSS = `
@@ -162,28 +192,59 @@ const CSS = `
  *
  * The disc is bigger than it was to give the glyph room: 44 px carrying a 24 px
  * drawing, where 38 px carrying nothing was fine.
+ *
+ * ---- a sphere rather than a chip -------------------------------------------
+ *
+ * Every other disc in this HUD is flat on purpose — the minimap panel, the lap
+ * cell, the wayfinder's dial. The token is the one exception, and deliberately:
+ * it is a *prize*, on screen for the two or three seconds between winning it and
+ * using it, and the thing that sells "you have just won something" in that
+ * window is weight — a lit, bevelled object sitting on the HUD rather than
+ * printed on it. --hi/--mid/--lo are set per pickup in JS from the item's own
+ * colour (see shades() above), so the sphere is always that item's red or
+ * that item's brown, lit the same way.
  */
 #items .slot .token {
   width: 44px;
   height: 44px;
   border-radius: 50%;
-  border: 2px solid rgba(246, 239, 226, 0.85);
-  box-shadow: 0 2px 10px rgba(20, 14, 8, 0.6), inset 0 0 0 3px rgba(20, 14, 8, 0.28);
-  transition: background-color 120ms linear;
+  position: relative;
+  background: radial-gradient(circle at 32% 24%, var(--hi, #fff), var(--mid, #888) 55%, var(--lo, #000) 100%);
+  border: 2px solid;
+  border-color: var(--rim-hi, #fff) var(--rim-lo, #000) var(--rim-lo, #000) var(--rim-hi, #fff);
+  box-shadow:
+    0 3px 9px rgba(20, 14, 8, 0.65),
+    inset 0 2px 2px rgba(255, 255, 255, 0.5),
+    inset 0 -7px 10px rgba(0, 0, 0, 0.4);
+  transition: background 120ms linear;
   display: grid;
   place-items: center;
+}
+/* The gloss: a soft ellipse of light where a studio key would actually land on
+   a lacquered sphere this size. Not a highlight anybody consciously reads —
+   its job is to stop the disc reading as a flat circle filled in Figma. */
+#items .slot .token::before {
+  content: '';
+  position: absolute;
+  top: 8%;
+  left: 18%;
+  width: 50%;
+  height: 30%;
+  border-radius: 50%;
+  background: linear-gradient(rgba(255, 255, 255, 0.75), rgba(255, 255, 255, 0));
+  transform: rotate(-18deg);
+  pointer-events: none;
 }
 #items .slot .token svg {
   width: 24px;
   height: 24px;
   display: block;
-  /* Paper, not white: the same ink the rest of the interface is set in, so a
-     pickup belongs to the HUD rather than looking like a system icon. The drop
-     shadow is what keeps the glyph off the two darkest discs — the coffee brown
-     and the extinguisher red are close enough in value to paper's shadow that a
-     flat fill on them reads as a smudge. */
+  position: relative;
+  /* Paper, with a dark side and a lit side rather than one flat drop shadow —
+     the same two-direction cast the sphere around it has, so the glyph reads
+     as sitting on the surface rather than stuck over it. */
   fill: var(--paper);
-  filter: drop-shadow(0 1px 1.5px rgba(20, 14, 8, 0.55));
+  filter: drop-shadow(0 2px 1px rgba(20, 14, 8, 0.6)) drop-shadow(0 -1px 0 rgba(255, 255, 255, 0.25));
 }
 /* Ringed while it is being dragged behind you, so a shield looks like one. */
 #items .slot.shield .token {
@@ -277,16 +338,40 @@ const CSS = `
   background: rgba(246, 239, 226, 0.07);
   border-bottom: 1px solid rgba(246, 239, 226, 0.11);
 }
+/*
+ * The seal, as a badge rather than a coloured square — the same lit sphere the
+ * item token and the gauge's bezel are, in the one colour on this card that was
+ * still flat. Values are --pink's own shades, computed once by hand rather than
+ * through the token's shades() helper: this is the one badge on the card and it
+ * is always this colour, so a fixed gradient costs nothing a JS computation
+ * would have paid back.
+ */
 #items .module .seal {
   flex: 0 0 auto;
-  width: 22px;
-  height: 22px;
-  border-radius: 5px;
-  background: var(--pink);
+  position: relative;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 32% 24%, rgb(249, 187, 209), rgb(238, 62, 123) 55%, rgb(107, 28, 55) 100%);
+  border: 1.5px solid;
+  border-color: rgb(244, 130, 169) rgb(95, 25, 49) rgb(95, 25, 49) rgb(244, 130, 169);
+  box-shadow: 0 2px 5px rgba(20, 14, 8, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.5);
   color: #fff;
-  font: 800 12px/22px ${FAMILY};
+  font: 800 12px/24px ${FAMILY};
   text-align: center;
   letter-spacing: 0;
+}
+#items .module .seal::before {
+  content: '';
+  position: absolute;
+  top: 10%;
+  left: 20%;
+  width: 45%;
+  height: 28%;
+  border-radius: 50%;
+  background: linear-gradient(rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0));
+  transform: rotate(-18deg);
+  pointer-events: none;
 }
 #items .module .eyebrow {
   font-size: 11px;
@@ -573,7 +658,9 @@ export function createItemHud(): ItemHud {
         slot.classList.toggle('has', held !== null);
         if (held) {
           const item = ITEMS[held];
-          token.style.backgroundColor = `#${item.colour.toString(16).padStart(6, '0')}`;
+          for (const [prop, value] of Object.entries(shades(item.colour))) {
+            token.style.setProperty(prop, value);
+          }
           // Rewritten rather than toggled between five prebuilt nodes: this runs
           // once per pickup — a dozen times a race — and five hidden SVGs kept in
           // the tree to save an innerHTML that costs microseconds is the kind of
