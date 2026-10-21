@@ -94,12 +94,28 @@ export type Stand = {
 
 export const STANDS: readonly Stand[] = [
   {
-    // The deck's north end. The big one: without it, 9.7 m of open concrete was
-    // worth 154 m of lap — forty per cent of the race. The lanes are at x≈8.4 and
-    // x≈18.1, so a line down the middle at 13.2 is nearly five metres clear of
-    // each of them.
-    at: [13.2, LEVELS.floor, 6.9],
-    length: 8.0,
+    /*
+     * The deck's north end. The big one: without it, 9.7 m of open concrete was
+     * worth 154 m of lap — forty per cent of the race. The lanes are at x≈8.4 and
+     * x≈18.1, so a line down the middle at 13.2 is nearly five metres clear of
+     * each of them.
+     *
+     * 8.0 was long enough to sit clear of both lanes and short enough to leave
+     * what actually bounds this stretch of concrete alone — the parapet at its
+     * north edge and a parked car at its south — which is exactly the mistake:
+     * neither of those was where the stand's own ends were. Measured, the open
+     * corridor between them runs from z≈0.15 to z≈11.45, and the stand at
+     * length 8 covered only 2.65 to 11.15 — a 2.5 m gap against the parapet
+     * that the sweep never caught because it was checking the lap for a cut
+     * *through* the crowd, not for a run *round* the end of it.
+     *
+     * Centred and lengthened to close both ends with a hand's width of visible
+     * clearance so nobody is standing inside the railing or the car — the
+     * collision itself, padded by 0.5 the same as every other stand, still
+     * seals the last few centimetres either side of that.
+     */
+    at: [13.2, LEVELS.floor, 5.8],
+    length: 10.9,
     yaw: Math.PI / 2,
     label: 'crowd.deck.north',
   },

@@ -420,23 +420,34 @@ function parkingWaist(out: Dress, rng: Rng): void {
   park('garage.car.c', 21.4, 0, 'hatch');
   park('garage.car.d', 28.9, Math.PI, 'estate');
 
-  // And the leftovers. A pallet stack in the bay south of the middle column, and
-  // the drums that have been outside the plant room since the last service — both
-  // of them things a caretaker puts in the one part of a car park nobody parks
-  // in, and both of them narrow enough to leave the gaps worth aiming for.
+  /*
+   * The leftovers. A pallet stack in the bay south of the middle column, and the
+   * drums that have been outside the plant room since the last service.
+   *
+   * The middle column's bay used to keep the daylight beside it the note above
+   * describes — measured, two slivers either side of this stack, 0.55 m and
+   * 1.04 m, adding up to the "metre and a half" on record. That was the point
+   * once: a narrow, high-speed thread past the column, not a door left open.
+   * Closed now by request, and the plainest way to close it is the same stack,
+   * run the length of the gap instead of stopping short of it — full sheets of
+   * board rather than a short one, which is exactly what four metres of unused
+   * bay actually invites a caretaker to store. The north column's bay needs
+   * nothing done to it: the drums and the crowd stand behind them already run
+   * together with no gap between.
+   */
   const stack = new THREE.Group();
   for (let i = 0; i < 4; i++) {
-    const board = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.14, 0.8), MAT.melamine);
+    const board = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.14, 2.6), MAT.melamine);
     board.position.y = 0.08 + i * 0.15;
     board.castShadow = true;
     board.receiveShadow = true;
     stack.add(board);
   }
-  const wrapped = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.5, 0.72), MAT.plastic);
+  const wrapped = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.5, 2.5), MAT.plastic);
   wrapped.position.y = 0.62 + 0.25;
   wrapped.castShadow = true;
   stack.add(wrapped);
-  solid(out, stack, 'garage.pallets', [1.24, 1.4, 0.84], [line - 0.2, BASE, 16.9], jitter(rng, 0.12));
+  solid(out, stack, 'garage.pallets', [1.24, 1.4, 2.64], [line - 0.2, BASE, 17.15], jitter(rng, 0.12));
 
   const drums = new THREE.Group();
   for (const [dx, dz] of [
