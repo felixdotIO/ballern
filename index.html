@@ -3,196 +3,476 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Chair Force One — Join the waitlist</title>
+    <title>Chair Force One · Mario Kart for Nine-to-Fivers</title>
     <meta
       name="description"
-      content="An office chair racing game. Race your rivals through the floorplate, pick your driver, pick your chair. Join the waitlist for early access."
+      content="Chair Force One is a kart racer on office chairs. Seven colleagues, three laps of the office, one mug. Join the waitlist for early access."
     />
-    <link rel="preload" href="/fonts/bricolage-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <meta property="og:title" content="Chair Force One · Mario Kart for Nine-to-Fivers" />
+    <meta property="og:description" content="Seven colleagues, three laps of the office, one mug. The waitlist is open." />
+    <meta property="og:image" content="https://chairforceone.vercel.app/media/teaser-poster.jpg" />
+    <meta property="og:url" content="https://chairforceone.vercel.app/" />
+    <meta property="og:image:width" content="1280" />
+    <meta property="og:image:height" content="720" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Chair Force One · Mario Kart for Nine-to-Fivers" />
+    <meta name="twitter:image" content="https://chairforceone.vercel.app/media/teaser-poster.jpg" />
+    <link rel="preload" href="/fonts/archivo-latin-wdth-italic.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="preload" href="/art/key-art.webp" as="image" />
     <link rel="preload" href="/art/logo.webp" as="image" />
     <style>
-      :root { color-scheme: light dark; }
+      /* Archivo and Inter, both SIL Open Font License, served from here. */
+      @font-face { font-family: 'Archivo'; font-style: normal; font-weight: 100 900; font-stretch: 62% 125%; font-display: swap; src: url('/fonts/archivo-latin-wdth-normal.woff2') format('woff2-variations'); }
+      @font-face { font-family: 'Archivo'; font-style: italic; font-weight: 100 900; font-stretch: 62% 125%; font-display: swap; src: url('/fonts/archivo-latin-wdth-italic.woff2') format('woff2-variations'); }
+      @font-face { font-family: 'Inter'; font-style: normal; font-weight: 100 900; font-display: swap; src: url('/fonts/inter-latin-wght-normal.woff2') format('woff2-variations'); }
+
+      :root {
+        color-scheme: dark;
+        --ground: #1b1410;
+        --ground-2: #241c16;
+        --panel: #2d241c;
+        --ink: #1a140f;
+        --paper: #f6efe2;
+        --paper-2: rgba(246, 239, 226, 0.74);
+        --paper-3: rgba(246, 239, 226, 0.46);
+        --line: rgba(246, 239, 226, 0.1);
+        --hot: #ee5221;
+        --cream: #f4ecdc;
+        --ink-2: #4a3a2c;
+        --hot-2: #ff7a45;
+        --go: #63d98b;
+        --gutter: clamp(20px, 5vw, 72px);
+        --max: 1200px;
+        --display: 'Archivo', 'Arial Black', sans-serif;
+        --text: 'Inter', system-ui, sans-serif;
+        --ease: cubic-bezier(.2, .7, .2, 1);
+      }
       * { box-sizing: border-box; }
-      html, body {
-        margin: 0;
-        min-height: 100%;
-        background: #241c15;
-        font-family: 'Bricolage Grotesque', 'Helvetica Neue', Helvetica, sans-serif;
-        color: #f6efe2;
-      }
-      @font-face {
-        font-family: 'Bricolage Grotesque';
-        font-weight: 200 800;
-        font-stretch: 75% 100%;
-        font-display: block;
-        src: url('/fonts/bricolage-latin.woff2') format('woff2');
-      }
+      html { scroll-behavior: smooth; }
+      html, body { margin: 0; background: var(--ground); color: var(--paper); font-family: var(--text); font-size: 16px; -webkit-font-smoothing: antialiased; }
+      img, video { display: block; max-width: 100%; }
+      p { margin: 0; }
+      .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
-      main {
-        position: relative;
-        min-height: 100svh;
-        display: flex;
-        flex-direction: column;
-        align-items: flex-start;
-        justify-content: flex-end;
-        padding: clamp(24px, 7vw, 96px) clamp(24px, 7vw, 96px) clamp(40px, 8vh, 84px);
-        overflow: hidden;
-      }
-      .art {
-        position: absolute;
-        inset: 0;
-        background: url('/art/key-art.webp') center 42% / cover no-repeat;
-      }
-      .scrim {
-        position: absolute;
-        inset: 0;
-        background:
-          linear-gradient(90deg, rgba(20, 14, 9, 0.56) 0%, rgba(20, 14, 9, 0.22) 36%, rgba(20, 14, 9, 0) 60%),
-          linear-gradient(180deg, rgba(20, 14, 9, 0.3) 0%, rgba(20, 14, 9, 0.08) 26%, rgba(20, 14, 9, 0.4) 64%, rgba(20, 14, 9, 0.92) 100%);
-      }
-      .glow {
-        position: absolute;
-        inset: 0;
-        background:
-          radial-gradient(30% 26% at 28% 70%, rgba(238, 82, 33, 0.3), transparent 72%),
-          radial-gradient(44% 36% at 26% 72%, rgba(242, 160, 43, 0.15), transparent 74%);
-      }
+      /* ---- type ----------------------------------------------------------- */
 
-      .content {
-        position: relative;
-        display: flex;
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 22px;
-        max-width: 620px;
-      }
-      .logo {
-        width: min(58vw, 460px);
-        height: auto;
-        filter: drop-shadow(0 12px 34px rgba(12, 8, 4, 0.6));
-      }
-      .flag {
-        width: clamp(104px, 12vw, 160px);
-        height: 15px;
-        background-image:
-          linear-gradient(90deg, #ee5221 0%, rgba(238, 82, 33, 0) 100%),
-          linear-gradient(90deg, #ee5221 0%, rgba(238, 82, 33, 0) 100%),
-          linear-gradient(90deg, #ee5221 0%, rgba(238, 82, 33, 0) 100%);
-        background-size: 100% 3px, 64% 3px, 38% 3px;
-        background-position: 0 0, 0 6px, 0 12px;
-        background-repeat: no-repeat;
-        transform: skewX(-11deg);
-        filter: drop-shadow(0 2px 6px rgba(12, 8, 4, 0.8));
-      }
-      .pitch {
-        margin: 0;
-        font-size: clamp(16px, 2vw, 19px);
-        line-height: 1.5;
-        color: rgba(246, 239, 226, 0.88);
-        text-shadow: 0 1px 10px rgba(12, 8, 4, 0.5);
-      }
+      .display { margin: 0; font-family: var(--display); font-style: italic; font-weight: 900; font-stretch: 125%; line-height: 0.95; letter-spacing: -0.02em; text-transform: uppercase; text-wrap: balance; }
+      .display em { font-style: italic; color: var(--hot); }
+      .small-caps { font-family: var(--display); font-weight: 700; font-size: 12px; line-height: 1; letter-spacing: 0.16em; text-transform: uppercase; }
+      h2.display { font-size: clamp(34px, 4.2vw, 58px); line-height: 0.98; }
+      .h3 { margin: 0; font-family: var(--display); font-weight: 800; font-stretch: 100%; font-size: clamp(24px, 2.2vw, 32px); line-height: 1.12; letter-spacing: -0.015em; text-wrap: balance; }
+      .h3 em { font-style: normal; color: var(--hot); }
+      .num { font-family: var(--display); font-weight: 700; font-size: 13px; letter-spacing: 0.12em; color: var(--hot); }
+      .reveal { opacity: 0; transform: translateY(24px); transition: opacity 800ms var(--ease), transform 800ms var(--ease); transition-delay: var(--d, 0ms); }
+      .reveal.in { opacity: 1; transform: none; }
+      .lead { font-size: clamp(17px, 1.4vw, 19px); line-height: 1.6; color: var(--paper-2); max-width: 600px; text-wrap: pretty; }
+      .lead b { color: var(--paper); font-weight: 600; }
 
-      form {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 10px;
-        width: 100%;
-      }
-      input[type='email'] {
-        flex: 1 1 260px;
-        min-width: 0;
-        padding: 14px 16px;
-        border-radius: 8px;
-        border: 1px solid rgba(246, 239, 226, 0.22);
-        background: rgba(20, 14, 9, 0.55);
-        color: #f6efe2;
-        font: inherit;
-        font-size: 15px;
-      }
-      input[type='email']::placeholder { color: rgba(246, 239, 226, 0.45); }
-      input[type='email']:focus {
-        outline: none;
-        border-color: #ee5221;
-      }
-      /* Honeypot — invisible to a person, a one-line trap for a bot that fills in
-         every field it finds. */
-      .hp {
-        position: absolute;
-        left: -9999px;
-        width: 1px;
-        height: 1px;
-        opacity: 0;
-      }
-      button {
-        flex: 0 0 auto;
-        padding: 14px 22px;
-        border-radius: 8px;
-        border: none;
-        background: #ee5221;
-        color: #241c15;
-        font: inherit;
-        font-weight: 700;
-        font-size: 15px;
-        letter-spacing: 0.01em;
-        cursor: pointer;
+      /* ---- system --------------------------------------------------------- */
+
+      .wrap { width: 100%; max-width: var(--max); margin: 0 auto; }
+      section { padding: clamp(88px, 11vw, 150px) var(--gutter); }
+      .head { display: grid; gap: 22px; max-width: 800px; margin-bottom: clamp(44px, 6vw, 72px); }
+      .button {
+        display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+        height: 56px; padding: 0 28px; border: none; background: var(--hot); color: var(--ink);
+        font-family: var(--display); font-style: italic; font-weight: 800; font-stretch: 110%; font-size: 15px; letter-spacing: 0.04em; text-transform: uppercase;
+        text-decoration: none; cursor: pointer;
+        clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
         transition: background 160ms ease, transform 160ms ease;
       }
-      button:hover { background: #f2a02b; }
-      button:active { transform: scale(0.97); }
-      button:disabled { opacity: 0.6; cursor: default; }
+      .button:hover { background: var(--hot-2); }
+      .button:active { transform: translateY(1px); }
+      .button:disabled { opacity: 0.6; cursor: default; }
+      .button svg { width: 18px; height: 18px; flex: none; }
+      .button { white-space: nowrap; }
+      .button.small { height: 42px; padding: 0 20px; font-size: 13px; }
 
-      .status {
-        min-height: 1.4em;
-        margin: 0;
-        font-size: 13.5px;
-        letter-spacing: 0.02em;
-        color: rgba(246, 239, 226, 0.75);
+      /* ---- sticky bar ----------------------------------------------------- */
+
+      .bar {
+        position: fixed; left: 50%; bottom: 20px; z-index: 10;
+        display: flex; align-items: center; gap: 18px;
+        padding: 8px 8px 8px 18px; border-radius: 999px;
+        background: rgba(27, 20, 16, 0.78); backdrop-filter: blur(16px) saturate(1.2); -webkit-backdrop-filter: blur(16px) saturate(1.2);
+        border: 1px solid rgba(246, 239, 226, 0.12); box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+        transform: translate(-50%, 140%); transition: transform 420ms var(--ease);
       }
+      .bar.on { transform: translate(-50%, 0); }
+      .bar img { width: 74px; height: auto; }
+      .bar .button.small { border-radius: 999px; clip-path: none; }
+
+      /* ---- hero ----------------------------------------------------------- */
+      /* The loading screen, at page scale: the key art full bleed, the emblem low left on the
+         quiet floor, one line under it and one thing to do. Nothing else. */
+
+      .hero { position: relative; min-height: 100svh; display: flex; flex-direction: column; justify-content: flex-end; padding: 0 var(--gutter) clamp(44px, 8vh, 88px); overflow: hidden; isolation: isolate; }
+      .hero .art { position: absolute; inset: -3%; z-index: -3; background: url('/art/key-art.webp') 58% 40% / cover no-repeat; translate: var(--px, 0) var(--py, 0); transition: translate 700ms var(--ease); opacity: 0; animation: reveal 1400ms var(--ease) forwards, drift 30s ease-in-out 1400ms infinite alternate; }
+      @keyframes drift { from { transform: scale(1.02); } to { transform: scale(1.07) translate3d(-1%, -0.5%, 0); } }
+      @keyframes reveal { from { opacity: 0; transform: scale(1.07); } to { opacity: 1; transform: scale(1.02); } }
+      .hero .shade {
+        position: absolute; inset: 0; z-index: -2;
+        background:
+          radial-gradient(60% 70% at 0% 100%, rgba(20, 14, 9, 0.92), rgba(20, 14, 9, 0.55) 45%, rgba(20, 14, 9, 0) 75%),
+          linear-gradient(180deg, rgba(20, 14, 9, 0.45) 0%, rgba(20, 14, 9, 0) 18%, rgba(20, 14, 9, 0) 55%, rgba(20, 14, 9, 0.55) 82%, var(--ground) 100%);
+      }
+      .hero .glow { position: absolute; inset: 0; z-index: -1; background: radial-gradient(28% 30% at 17% 66%, rgba(238, 82, 33, 0.28), transparent 72%); }
+
+      .nav { position: absolute; inset: 0 0 auto 0; z-index: 2; display: flex; justify-content: flex-end; padding: 24px var(--gutter); opacity: 0; animation: rise 800ms var(--ease) 500ms forwards; }
+      .nav .links { display: flex; gap: 4px; padding: 5px; border-radius: 999px; background: rgba(20, 14, 9, 0.4); backdrop-filter: blur(14px) saturate(1.2); -webkit-backdrop-filter: blur(14px) saturate(1.2); border: 1px solid rgba(246, 239, 226, 0.14); }
+      .nav .links a { padding: 9px 16px; border-radius: 999px; color: var(--paper); text-decoration: none; font: 600 14px/1 var(--text); transition: background 180ms ease; }
+      .nav .links a:hover { background: rgba(246, 239, 226, 0.14); }
+
+      .lockup { display: grid; justify-items: start; gap: clamp(18px, 2.4vh, 26px); max-width: 640px; }
+      .lockup > * { opacity: 0; transform: translateY(18px); animation: rise 900ms var(--ease) forwards; }
+      .lockup > :nth-child(2) { animation-delay: 160ms; }
+      .lockup > :nth-child(3) { animation-delay: 320ms; }
+      @keyframes rise { to { opacity: 1; transform: none; } }
+      .lockup .logo { width: clamp(260px, 30vw, 520px); height: auto; filter: drop-shadow(0 16px 40px rgba(12, 8, 4, 0.6)); }
+      .lockup h1 { font-size: clamp(30px, 3vw, 50px); font-stretch: 110%; line-height: 1; text-shadow: 0 4px 24px rgba(12, 8, 4, 0.6); }
+
+      .signup { display: grid; gap: 10px; width: min(500px, 100%); margin-top: 6px; }
+      .signup form { display: flex; padding: 5px; border-radius: 999px; background: rgba(20, 14, 9, 0.5); backdrop-filter: blur(14px) saturate(1.2); -webkit-backdrop-filter: blur(14px) saturate(1.2); border: 1px solid rgba(246, 239, 226, 0.18); transition: border-color 180ms ease; }
+      .signup form:focus-within { border-color: rgba(238, 82, 33, 0.8); }
+      .signup input[type='email'] { flex: 1 1 auto; min-width: 0; height: 50px; padding: 0 18px; border: none; border-radius: 999px; background: transparent; color: var(--paper); font: 500 16px/1 var(--text); }
+      .signup input[type='email']::placeholder { color: var(--paper-3); }
+      .signup input[type='email']:focus { outline: none; }
+      .signup .button { height: 50px; border-radius: 999px; clip-path: none; padding: 0 24px; }
+      .button svg { transition: transform 220ms var(--ease); }
+      .button:hover svg { transform: translateX(4px); }
+      .hp { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
+      .meta { padding-left: 20px; font-size: 13px; color: var(--paper-3); }
+      .status { font-weight: 600; color: var(--paper-2); }
+      .status:empty { display: none; }
       .status.error { color: #ff9b7a; }
-      .status.ok { color: #9be39b; }
+      .status.ok { color: var(--go); }
+      .status:not(:empty) ~ .fine { display: none; }
 
-      .also {
-        margin-top: 4px;
-        font-size: 13px;
-        color: rgba(246, 239, 226, 0.55);
+      /* ---- ticker --------------------------------------------------------- */
+
+      .ticker { overflow: hidden; background: var(--hot); color: var(--ink); border-block: 1px solid rgba(0, 0, 0, 0.2); }
+      .ticker .track { display: flex; width: max-content; animation: tick 60s linear infinite; }
+      .ticker span { padding: 13px 0; font-family: var(--display); font-style: italic; font-weight: 800; font-stretch: 112%; font-size: 15px; letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap; }
+      .ticker span::after { content: '•'; margin: 0 26px; opacity: 0.45; }
+      @keyframes tick { to { transform: translateX(-50%); } }
+
+      /* ---- the game ------------------------------------------------------- */
+
+      .rows { display: grid; gap: clamp(56px, 8vw, 110px); }
+      .row { display: grid; grid-template-columns: 1.25fr 1fr; gap: clamp(28px, 5vw, 72px); align-items: center; }
+      .row:nth-child(even) .clip { order: 2; }
+      .clip { position: relative; aspect-ratio: 16 / 9; overflow: hidden; background: #000; border-radius: 16px; box-shadow: 0 30px 80px rgba(0, 0, 0, 0.35); }
+      .clip video { width: 100%; height: 100%; object-fit: cover; }
+      .row .copy { display: grid; gap: 16px; align-content: center; }
+      .row .copy p { font-size: 17px; line-height: 1.7; color: var(--paper-2); max-width: 440px; }
+      kbd { display: inline-block; padding: 2px 8px; border-radius: 6px; border: 1px solid rgba(246, 239, 226, 0.28); border-bottom-width: 2px; font: 600 13px/1.3 var(--text); color: var(--paper); }
+
+      .desk { margin-top: clamp(96px, 11vw, 150px); }
+      .desk > h2 { margin-bottom: clamp(36px, 5vw, 56px); }
+      .extras { display: grid; grid-template-columns: repeat(4, 1fr); gap: clamp(20px, 3vw, 40px); }
+      .extras > div { padding: 26px 24px 28px; border-radius: 16px; background: rgba(246, 239, 226, 0.035); transition: background 240ms ease; }
+      .extras > div:hover { background: rgba(246, 239, 226, 0.06); }
+      .extras .ico { display: block; margin-bottom: 22px; }
+      .extras .ico svg { width: 30px; height: 30px; fill: none; stroke: var(--hot); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+      .extras h4 { margin: 0 0 8px; font-family: var(--display); font-weight: 700; font-size: 18px; line-height: 1.25; letter-spacing: -0.01em; }
+      .extras p { font-size: 15px; line-height: 1.6; color: var(--paper-2); }
+
+      /* ---- teaser --------------------------------------------------------- */
+
+      .teaser { background: var(--ground); padding-top: clamp(64px, 8vw, 110px); }
+      .teaser .wrap.wide { max-width: 1440px; }
+      .player { position: relative; aspect-ratio: 16 / 9; background: #000; border-radius: 20px; box-shadow: 0 40px 120px rgba(0, 0, 0, 0.5); overflow: hidden; }
+      .player video { width: 100%; height: 100%; object-fit: cover; }
+      .player .sound { position: absolute; right: 18px; bottom: 18px; display: inline-flex; align-items: center; gap: 10px; padding: 10px 16px 10px 12px; border: 1px solid rgba(246, 239, 226, 0.18); border-radius: 999px; background: rgba(20, 14, 9, 0.6); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); color: var(--paper); font: 600 13px/1 var(--text); cursor: pointer; transition: background 180ms ease, border-color 180ms ease; }
+      .player .sound:hover { background: rgba(238, 82, 33, 0.85); border-color: transparent; }
+      .player .sound svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+      .player .sound svg path:first-child { fill: currentColor; }
+      .player .sound .on { display: none; }
+      .player .sound[aria-pressed='true'] .on { display: inline; }
+      .player .sound[aria-pressed='true'] .off { display: none; }
+
+      /* ---- the prize ---------------------------------------------------- */
+
+      .prize-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: clamp(32px, 6vw, 88px); align-items: center; }
+      .prize-grid .pic { aspect-ratio: 1; overflow: hidden; border-radius: 20px; box-shadow: 0 40px 110px rgba(0, 0, 0, 0.5); background: #120d09; transform: rotate(-2deg); }
+      .prize-grid .pic img { width: 100%; height: 100%; object-fit: cover; object-position: 55% 55%; }
+      .prize-grid .copy { display: grid; gap: 22px; }
+
+      /* ---- the field ------------------------------------------------------ */
+
+      .field { background: var(--ground); }
+      .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+      .entrant { position: relative; display: grid; grid-template-rows: auto 1fr; background: rgba(246, 239, 226, 0.035); border-radius: 18px; overflow: hidden; transition: transform 400ms var(--ease), background 240ms ease; }
+      .entrant:hover { transform: translateY(-6px); background: rgba(246, 239, 226, 0.06); }
+      .entrant .face { aspect-ratio: 1; overflow: hidden; background: radial-gradient(70% 70% at 50% 45%, var(--tint, rgba(242, 160, 43, 0.22)), transparent 72%), var(--panel); }
+      .entrant .face img { width: 100%; height: 100%; object-fit: cover; transform: translateY(5%) scale(1.06); transition: transform 600ms var(--ease); }
+      .entrant:hover .face img { transform: translateY(2%) scale(1.12); }
+      .entrant .car { position: absolute; top: 14px; left: 14px; padding: 6px 10px 5px; border-radius: 999px; background: rgba(20, 14, 9, 0.6); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); color: var(--paper); font-family: var(--display); font-weight: 700; font-size: 12px; letter-spacing: 0.08em; }
+      .entrant .body { display: grid; gap: 6px; align-content: start; padding: 18px 20px 22px; }
+      .entrant h3 { margin: 0; font-family: var(--display); font-weight: 700; font-size: 18px; line-height: 1.2; letter-spacing: -0.01em; }
+      .entrant p { font-size: 14px; line-height: 1.55; color: var(--paper-2); }
+      .entrant.cta { display: grid; place-content: center; justify-items: start; gap: 22px; padding: 28px; background: linear-gradient(150deg, rgba(238, 82, 33, 0.3), rgba(238, 82, 33, 0.06) 75%); }
+      .entrant.cta:hover { transform: none; }
+      .entrant.cta h3 { font-family: var(--display); font-style: italic; font-weight: 900; font-stretch: 112%; font-size: clamp(26px, 2.5vw, 36px); line-height: 1; text-transform: uppercase; }
+      .entrant.cta h3 em { font-style: italic; color: var(--hot); }
+
+      /* ---- finish --------------------------------------------------------- */
+
+      .finish { text-align: center; background: radial-gradient(46% 64% at 50% 100%, rgba(238, 82, 33, 0.24), transparent 70%), var(--ground); }
+      .finish .wrap { display: grid; justify-items: center; gap: 24px; }
+      .finish img { width: min(70vw, 360px); filter: drop-shadow(0 20px 50px rgba(12, 8, 4, 0.7)); }
+      .finish .lead { margin: 0 auto 6px; }
+      footer { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 28px var(--gutter) 96px; border-top: 1px solid var(--line); color: var(--paper-3); }
+
+      @media (max-width: 1020px) {
+        .row { grid-template-columns: 1fr; }
+        .row:nth-child(even) .clip { order: 0; }
+        .extras { grid-template-columns: repeat(2, 1fr); gap: 28px; }
+        .prize-grid { grid-template-columns: 1fr; }
+        .prize-grid .pic { max-width: 520px; }
+        .grid { grid-template-columns: repeat(2, 1fr); }
       }
-      .also a {
-        color: inherit;
-        text-decoration: underline;
-        text-underline-offset: 3px;
+      @media (max-width: 640px) {
+        .hero .art { background-position: 62% 30%; }
+        .hero .shade { background: linear-gradient(180deg, rgba(20, 14, 9, 0.35) 0%, rgba(20, 14, 9, 0) 22%, rgba(20, 14, 9, 0.55) 50%, rgba(20, 14, 9, 0.94) 72%, var(--ground) 100%); }
+        .nav .links { display: none; }
+        .lockup .logo { width: min(72vw, 320px); }
+        .lockup h1 { font-size: 8.4vw; }
+        .signup form { flex-direction: column; gap: 6px; border-radius: 22px; padding: 6px; }
+        .signup .button { width: 100%; }
+        .meta { padding-left: 6px; }
+        .ticker span { font-size: 15px; padding: 13px 0; }
+        .extras { grid-template-columns: 1fr; }
+        .grid { gap: 12px; }
+        .entrant .body { padding: 14px 14px 18px; }
+        .entrant h3 { font-size: 16px; }
+        .entrant p { font-size: 13px; }
+        .entrant.cta { grid-column: 1 / -1; padding: 26px 22px; }
+        .bar img { width: 60px; }
+        .bar { bottom: 14px; }
       }
-      .also a:hover { color: #f2a02b; }
+      @media (prefers-reduced-motion: reduce) {
+        .reveal { opacity: 1; transform: none; transition: none; }
+        html { scroll-behavior: auto; }
+      }
     </style>
   </head>
   <body>
+    <div class="bar" id="bar" aria-hidden="true">
+      <img src="/art/logo.webp" alt="" />
+      <a class="button small" href="#join" tabindex="-1">Join the waitlist</a>
+    </div>
+
     <main>
-      <div class="art"></div>
-      <div class="scrim"></div>
-      <div class="glow"></div>
-      <div class="content">
-        <img class="logo" src="/art/logo.webp" alt="Chair Force One" />
-        <div class="flag"></div>
-        <p class="pitch">
-          An office chair racing game. Pick your driver, pick your chair, race the
-          floorplate — four rivals, one lap record. Early access is coming; leave
-          your email and we'll tell you the second the doors open.
-        </p>
-        <form id="waitlist-form" novalidate>
-          <input type="text" name="company" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true" />
-          <input
-            type="email"
-            name="email"
-            placeholder="you@wherever.com"
-            autocomplete="email"
-            required
-          />
-          <button type="submit">Join the waitlist</button>
-        </form>
-        <p class="status" id="waitlist-status" role="status"></p>
-        <p class="also">Already in? <a href="/play/">Play now</a></p>
+      <header class="hero" id="top">
+        <div class="art" aria-hidden="true"></div>
+        <div class="shade" aria-hidden="true"></div>
+        <div class="glow" aria-hidden="true"></div>
+
+        <nav class="nav" aria-label="Main">
+          <div class="links">
+            <a href="#teaser">Teaser</a>
+            <a href="#game">The game</a>
+            <a href="#prize">The prize</a>
+            <a href="#field">Drivers</a>
+          </div>
+        </nav>
+
+        <div class="lockup">
+          <img class="logo" src="/art/logo.webp" alt="Chair Force One" />
+          <h1 class="display">Mario Kart for <em>Nine‑to‑Fivers.</em></h1>
+          <div class="signup" id="join">
+            <form id="waitlist-form" novalidate>
+              <input type="text" name="company" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true" />
+              <label class="sr" for="email">Email address</label>
+              <input id="email" type="email" name="email" placeholder="you@work.com" autocomplete="email" required />
+              <button class="button" type="submit">
+                Join the waitlist
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M13 5l7 7-7 7-1.4-1.4 4.6-4.6H4v-2h12.2l-4.6-4.6z" /></svg>
+              </button>
+            </form>
+            <div class="meta">
+              <p class="status" id="waitlist-status" role="status"></p>
+              <p class="fine">Early access is coming. One email when it opens, nothing else.</p>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <section class="teaser" id="teaser">
+        <div class="wrap wide">
+          <div class="head">
+            <h2 class="display">Twenty seconds. <em>One mug.</em></h2>
+            <p class="lead">The concept is simple: when the office empties on a Friday, seven colleagues race their office chairs through it. <b>Three laps. One mug. Everything else is fair game.</b></p>
+          </div>
+          <div class="player">
+            <video id="teaser-video" src="/media/teaser.mp4" poster="/media/teaser-poster.jpg" autoplay muted loop playsinline preload="metadata"></video>
+            <button class="sound" id="sound" type="button" aria-pressed="false">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z"/><path class="on" d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12"/><path class="off" d="M16.5 9.5l5 5M21.5 9.5l-5 5"/></svg>
+              <span>Sound on</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <div class="ticker" aria-hidden="true">
+        <div class="track">
+          <span>Three laps</span><span>One mug</span><span>Drift the corridors</span><span>Mind the server racks</span><span>Mandatory security training</span><span>Fish in the microwave</span><span>HR has been informed</span><span>Winner keeps the mug</span>
+          <span>Three laps</span><span>One mug</span><span>Drift the corridors</span><span>Mind the server racks</span><span>Mandatory security training</span><span>Fish in the microwave</span><span>HR has been informed</span><span>Winner keeps the mug</span>
+        </div>
       </div>
+
+      <section class="game" id="game">
+        <div class="wrap">
+          <div class="head">
+            <h2 class="display">Clock out. <em>Floor it.</em></h2>
+            <p class="lead">
+              A kart racer where the track is your office and the kart is your chair. It runs in your browser,
+              so technically you could play it on your lunch break. <b>Technically.</b>
+            </p>
+          </div>
+
+          <div class="rows">
+            <article class="row">
+              <div class="clip">
+                <video src="/media/loops/track.mp4" poster="/media/loops/track.jpg" autoplay muted loop playsinline preload="metadata"></video>
+              </div>
+              <div class="copy">
+                <span class="num">01 · The track</span>
+                <h3 class="h3">The office <em>is the track.</em></h3>
+                <p>Open plan, canteen, server room, board room, reception. Then out onto the rooftop car park at sunset and down the ramp into the garage, past the colleagues who stayed to watch. One lap, every room.</p>
+              </div>
+            </article>
+            <article class="row">
+              <div class="clip">
+                <video src="/media/loops/flip.mp4" poster="/media/loops/flip.jpg" autoplay muted loop playsinline preload="metadata"></video>
+              </div>
+              <div class="copy">
+                <span class="num">02 · The handling</span>
+                <h3 class="h3">Drift like you’re <em>late for a meeting.</em></h3>
+                <p>If it has castors, it drifts. Hold <kbd>Space</kbd> and the longer you hold it, the harder you boost. Hit the pallets and the same key turns into a flip. Land on the backrest and spend the next corner thinking about what you did.</p>
+              </div>
+            </article>
+            <article class="row">
+              <div class="clip">
+                <video src="/media/loops/training.mp4" poster="/media/loops/training.jpg" autoplay muted loop playsinline preload="metadata"></video>
+              </div>
+              <div class="copy">
+                <span class="num">03 · The weapons</span>
+                <h3 class="h3">Mandatory <em>Security Training.</em></h3>
+                <p>The cruellest thing in the piñata. It homes in on whoever is ahead of you and stops them dead until they pass a quiz on phishing emails and suspicious USB sticks.</p>
+                <p>Also in the break room: the Fire Extinguisher, a Coffee Spill, Der Pömpel, and Fish in the Microwave, which clears the whole floor.</p>
+              </div>
+            </article>
+          </div>
+
+          <div class="desk">
+            <h2 class="display">Made for people <em>with a desk.</em></h2>
+            <div class="extras">
+              <div>
+                <span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M7 6.5h.01M10 6.5h.01"/><path d="M9 14l2 2 4-4"/></svg></span>
+                <h4>No install. No IT ticket.</h4>
+                <p>It runs in a browser tab. No admin rights, no gaming PC, no asking anyone for permission.</p>
+              </div>
+              <div>
+                <span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M9 2h6"/></svg></span>
+                <h4>Fits between two meetings.</h4>
+                <p>A race is three laps and about five minutes. Lunch break, slow Friday, the bit before the all-hands.</p>
+              </div>
+              <div>
+                <span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 20V8a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9z"/><path d="M14 13l4 4M18 13l-4 4"/></svg></span>
+                <h4>It’s just a tab.</h4>
+                <p>Somebody walks past your screen? Close it. You were checking the train times.</p>
+              </div>
+              <div>
+                <span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/><path d="M10 8.5l-1 5M14 8.5l-1 5M8.5 10h7M8 12h7"/></svg></span>
+                <h4>One code for the whole team.</h4>
+                <p>Drop the room code in the team chat. Five of you on the grid, and finally a fair way to decide who gets the window desk.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="prize-sec" id="prize">
+        <div class="wrap prize-grid">
+          <div class="pic"><img src="/media/mug.webp" alt="A mug that reads World’s Okayest Employee, coffee flying out of it" loading="lazy" /></div>
+          <div class="copy">
+            <h2 class="display">The prize. <em>One mug.</em></h2>
+            <p class="lead">World’s Okayest Employee. It has lived in the third kitchen longer than anyone has worked here. Nobody knows whose it was. Nobody has ever washed it.</p>
+            <p class="lead"><b>Win the race and it sits on your desk until next Friday.</b> Then all six of them come for it again.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="field" id="field">
+        <div class="wrap">
+          <div class="head">
+            <h2 class="display">Pick a colleague. <em>Any colleague.</em></h2>
+            <p class="lead">Same chair, seven driving styles. Whoever you don’t pick lines up against you.</p>
+          </div>
+          <div class="grid">
+            <article class="entrant">
+              <div class="face"><img src="/art/cast/facilities.webp" alt="" loading="lazy" /></div>
+              <span class="car">01</span>
+              <div class="body"><h3>Facility Manager</h3><p>Eleven years on this floor. Knows every shortcut. Built most of them.</p></div>
+            </article>
+            <article class="entrant">
+              <div class="face"><img src="/art/cast/sales.webp" alt="" loading="lazy" /></div>
+              <span class="car">02</span>
+              <div class="body"><h3>The sales guy</h3><p>Takes gaps that don’t exist and calls it closing.</p></div>
+            </article>
+            <article class="entrant">
+              <div class="face"><img src="/art/cast/designer.webp" alt="" loading="lazy" /></div>
+              <span class="car">03</span>
+              <div class="body"><h3>The designer</h3><p>The cleanest line on the floor. Slightly too slow to win with it.</p></div>
+            </article>
+            <article class="entrant">
+              <div class="face"><img src="/art/cast/boss.webp" alt="" loading="lazy" /></div>
+              <span class="car">04</span>
+              <div class="body"><h3>The boss</h3><p>Brakes for corners that aren’t there. Refuses to be overtaken.</p></div>
+            </article>
+            <article class="entrant">
+              <div class="face" style="--tint: rgba(242, 200, 120, 0.26)"><img src="/art/cast/dog.webp" alt="" loading="lazy" /></div>
+              <span class="car">05</span>
+              <div class="body"><h3>The office dog</h3><p>Has no plan. Has led a lap anyway.</p></div>
+            </article>
+            <article class="entrant">
+              <div class="face" style="--tint: rgba(236, 72, 140, 0.26)"><img src="/art/cast/newone.webp" alt="" loading="lazy" /></div>
+              <span class="car">06</span>
+              <div class="body"><h3>The new one</h3><p>Started on Monday. Hasn’t hit anything. Yet.</p></div>
+            </article>
+            <article class="entrant">
+              <div class="face"><img src="/art/cast/intern.webp" alt="" loading="lazy" /></div>
+              <span class="car">07</span>
+              <div class="body"><h3>The intern</h3><p>Trying very hard. Fastest on lap one.</p></div>
+            </article>
+            <article class="entrant cta">
+              <h3 class="display">Seat eight <em>is yours.</em></h3>
+              <a class="button" href="#join">Join the waitlist</a>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="finish">
+        <div class="wrap">
+          <img src="/art/logo.webp" alt="" />
+          <h2 class="display">Clock in <em>early.</em></h2>
+          <p class="lead">Early access is coming. Get on the list and you’re on the grid before anyone else in the building.</p>
+          <a class="button" href="#join">
+            Join the waitlist
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M13 5l7 7-7 7-1.4-1.4 4.6-4.6H4v-2h12.2l-4.6-4.6z" /></svg>
+          </a>
+        </div>
+      </section>
     </main>
+    <footer class="small-caps">
+      <span>Chair Force One</span>
+      <span>Three laps. One mug.</span>
+    </footer>
     <script type="module" src="/src/waitlist/main.ts"></script>
   </body>
 </html>

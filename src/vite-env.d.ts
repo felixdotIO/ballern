@@ -10,16 +10,6 @@ interface ImportMetaEnv {
    * working game. See `MULTIPLAYER_AVAILABLE` in `src/net/room.ts`.
    */
   readonly VITE_ROOM_URL?: string;
-
-  /**
-   * The Apps Script web app that appends a row to the waitlist sheet. Optional
-   * on purpose, same bargain as `VITE_ROOM_URL`: unset, the waitlist page still
-   * builds and plays dumb — the form disables itself rather than eating
-   * submissions nobody can read. See `src/waitlist/main.ts`.
-   */
-  readonly VITE_WAITLIST_URL?: string;
-  /** Matches `SHARED_SECRET` in tools/waitlist/Code.gs — see the note there. */
-  readonly VITE_WAITLIST_SECRET?: string;
 }
 
 interface ImportMeta {

@@ -1,18 +1,14 @@
 /**
  * The waitlist form's only job: get an email address into the sheet behind it.
  *
- * The endpoint is a Google Apps Script web app bound to that sheet, not a
- * server this project runs — see the deploy note in README/the Apps Script
- * project itself. Posted with `mode: 'no-cors'` because Apps Script's web app
- * responses don't carry CORS headers for a cross-origin `fetch`, which makes
- * the response opaque: we cannot read success/failure from it, only whether
- * the request left the browser. The write still happens on Apps Script's
- * side; this page just can't see the result, so a submission is reported as
- * sent rather than as confirmed.
+ * There is no backend. The page posts to a published Google Form whose responses
+ * are linked to the "Chairforce" spreadsheet; Google appends the row. Posted with
+ * `mode: 'no-cors'` because Forms sends no CORS headers, so the response is
+ * opaque: a submission is reported as sent, not as confirmed.
  */
 
-const ENDPOINT = import.meta.env.VITE_WAITLIST_URL as string | undefined;
-const SECRET = import.meta.env.VITE_WAITLIST_SECRET ?? '';
+const FORM = 'https://docs.google.com/forms/d/e/1FAIpQLScbnjxvemx7knM89uKC3JDNOhDhPQQoZhze9HMTm5hi9xbmGg/formResponse';
+const EMAIL_FIELD = 'entry.2068798860';
 
 const form = document.getElementById('waitlist-form') as HTMLFormElement | null;
 const status = document.getElementById('waitlist-status');
@@ -23,39 +19,110 @@ function setStatus(text: string, kind: 'ok' | 'error' | '' = '') {
   status.className = `status${kind ? ` ${kind}` : ''}`;
 }
 
-if (!ENDPOINT) {
-  // No endpoint configured (local dev without VITE_WAITLIST_URL, or it simply
-  // isn't set up yet) — disable rather than silently drop submissions.
-  form?.querySelectorAll('input, button').forEach((el) => ((el as HTMLInputElement).disabled = true));
-  setStatus('Waitlist isn’t open yet — check back soon.');
-} else if (form) {
-  form.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const data = new FormData(form);
-    const email = String(data.get('email') ?? '').trim();
-    const honeypot = String(data.get('company') ?? '');
+form?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const data = new FormData(form);
+  const email = String(data.get('email') ?? '').trim();
 
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setStatus('That doesn’t look like an email address.', 'error');
-      return;
-    }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    setStatus('That doesn’t look like an email address.', 'error');
+    return;
+  }
 
-    const button = form.querySelector('button');
-    if (button) button.disabled = true;
-    setStatus('Sending…');
+  // A bot filled the hidden field: look successful, send nothing.
+  if (String(data.get('company') ?? '')) {
+    setStatus('You’re on the list. See you on the floor.', 'ok');
+    form.reset();
+    return;
+  }
 
-    try {
-      await fetch(ENDPOINT, {
-        method: 'POST',
-        mode: 'no-cors',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ email, hp: honeypot, source: 'waitlist', secret: SECRET }),
-      });
-      setStatus('You’re on the list — see you on the floor.', 'ok');
-      form.reset();
-    } catch {
-      setStatus('Couldn’t reach the waitlist — try again in a moment.', 'error');
-      if (button) button.disabled = false;
-    }
+  const button = form.querySelector('button');
+  if (button) button.disabled = true;
+  setStatus('Sending…');
+
+  try {
+    await fetch(FORM, { method: 'POST', mode: 'no-cors', body: new URLSearchParams({ [EMAIL_FIELD]: email }) });
+    setStatus('You’re on the list. See you on the floor.', 'ok');
+    form.reset();
+  } catch {
+    setStatus('Couldn’t reach the waitlist. Try again in a moment.', 'error');
+  }
+  if (button) button.disabled = false;
+});
+
+// The calls to action further down the page land in the field, not just near it.
+document.querySelectorAll<HTMLAnchorElement>('a[href="#join"]').forEach((link) =>
+  link.addEventListener('click', () => {
+    window.setTimeout(() => document.getElementById('email')?.focus({ preventScroll: true }), 450);
+  }),
+);
+
+// The slim bar with the button arrives once the hero, and its form, are off screen.
+const bar = document.getElementById('bar');
+const hero = document.getElementById('top');
+if (bar && hero) {
+  let shown = false;
+  const update = () => {
+    const on = window.scrollY > hero.offsetHeight * 0.7;
+    if (on === shown) return;
+    shown = on;
+    bar.classList.toggle('on', on);
+    bar.setAttribute('aria-hidden', String(!on));
+    bar.querySelector('a')?.setAttribute('tabindex', on ? '0' : '-1');
+  };
+  window.addEventListener('scroll', update, { passive: true });
+  update();
+}
+
+// Sections settle in as they arrive. Added from here so the page is complete without script.
+if ('IntersectionObserver' in window && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+  const groups = ['.head', '.player', '.row', '.extras > div', '.prize-grid > *', '.entrant', '.finish .wrap > *'];
+  const seen = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        entry.target.classList.add('in');
+        seen.unobserve(entry.target);
+      }
+    },
+    { rootMargin: '0px 0px -8% 0px', threshold: 0.12 },
+  );
+  for (const selector of groups) {
+    document.querySelectorAll<HTMLElement>(selector).forEach((el, i) => {
+      el.classList.add('reveal');
+      el.style.setProperty('--d', `${(i % 4) * 80}ms`);
+      seen.observe(el);
+    });
+  }
+}
+
+// The key art leans a few pixels after the pointer, which is enough to read as depth.
+const art = document.querySelector<HTMLElement>('.hero .art');
+if (art && hero && window.matchMedia('(pointer: fine)').matches && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+  hero.addEventListener('pointermove', (event) => {
+    const x = event.clientX / window.innerWidth - 0.5;
+    const y = event.clientY / window.innerHeight - 0.5;
+    art.style.setProperty('--px', `${(-x * 18).toFixed(1)}px`);
+    art.style.setProperty('--py', `${(-y * 12).toFixed(1)}px`);
+  });
+  hero.addEventListener('pointerleave', () => {
+    art.style.setProperty('--px', '0px');
+    art.style.setProperty('--py', '0px');
   });
 }
+
+// The teaser starts muted, as browsers insist; one tap turns the score on and restarts it.
+const teaser = document.getElementById('teaser-video') as HTMLVideoElement | null;
+const sound = document.getElementById('sound');
+if (teaser && sound) {
+  sound.addEventListener('click', () => {
+    const on = teaser.muted;
+    teaser.muted = !on;
+    if (on) { teaser.currentTime = 0; void teaser.play(); }
+    sound.setAttribute('aria-pressed', String(on));
+    const label = sound.querySelector('span');
+    if (label) label.textContent = on ? 'Sound off' : 'Sound on';
+  });
+}
+
+export {};
